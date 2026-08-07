@@ -16,6 +16,10 @@ export default defineConfig({
 					label: '要件定義',
 					items: [{ autogenerate: { directory: 'requirements' } }],
 				},
+				{
+					label: '技術',
+					items: [{ autogenerate: { directory: 'tech' } }],
+				},
 			],
 		}),
 	],
