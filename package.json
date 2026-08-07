@@ -1,0 +1,15 @@
+{
+  "name": "recette",
+  "version": "1.0.0",
+  "private": true,
+  "description": "",
+  "scripts": {
+    "docs:dev": "pnpm --filter @recette/docs dev",
+    "docs:build": "pnpm --filter @recette/docs build",
+    "docs:preview": "pnpm --filter @recette/docs preview"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.14.0"
+}

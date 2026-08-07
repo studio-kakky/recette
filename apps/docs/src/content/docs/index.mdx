@@ -1,0 +1,35 @@
+---
+title: Recette
+description: 自分用レシピ管理アプリ Recette のドキュメント
+template: splash
+hero:
+  title: Recette
+  tagline: 自分用のレシピを、放り込んで、見つけて、買い物へ。
+  actions:
+    - text: プロダクト概要
+      link: /requirements/overview/
+      icon: right-arrow
+    - text: 機能要件（MVP）
+      link: /requirements/functional/
+      icon: document
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## ドキュメント
+
+<CardGrid stagger>
+	<Card title="プロダクト概要" icon="open-book">
+		背景・目的・コンセプト・利用シーン。 [読む →](/requirements/overview/)
+	</Card>
+	<Card title="機能要件（MVP）" icon="list-format">
+		MVP でつくる機能と、やらないこと。 [読む →](/requirements/functional/)
+	</Card>
+	<Card title="データモデル" icon="setting">
+		エンティティ関係とフィールドのドラフト。 [読む →](/requirements/data-model/)
+	</Card>
+	<Card title="非機能要件・ロードマップ" icon="rocket">
+		プラットフォーム方針と今後のフェーズ。 [読む →](/requirements/roadmap/)
+	</Card>
+</CardGrid>
