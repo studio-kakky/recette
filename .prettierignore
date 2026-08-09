@@ -12,5 +12,8 @@ apps/web/src/routeTree.gen.ts
 # wrangler types の生成物
 apps/web/worker-configuration.d.ts
 
+# Drizzle Kit の生成物（マイグレーション SQL とスナップショット）
+apps/web/drizzle/
+
 # Astro のドキュメントサイトは対象外（lint と揃える）
 apps/docs/
