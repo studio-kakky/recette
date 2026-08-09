@@ -1,3 +1,4 @@
+import { cloudflare } from '@cloudflare/vite-plugin';
 import tailwindcss from '@tailwindcss/vite';
 import { tanstackStart } from '@tanstack/react-start/plugin/vite';
 import viteReact from '@vitejs/plugin-react';
@@ -13,6 +14,8 @@ export default defineConfig({
   },
   plugins: [
     tailwindcss(),
+    // SSR 環境を Workers ランタイム (workerd) で動かす。tanstackStart() より前に置く
+    cloudflare({ viteEnvironment: { name: 'ssr' } }),
     tanstackStart(),
     // react の vite plugin は tanstackStart() より後に置く必要がある
     viteReact(),
