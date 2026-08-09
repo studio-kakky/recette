@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.astro/
+.tanstack/
+.vite/
+pnpm-lock.yaml
+
+# TanStack Router の生成物
+apps/web/src/routeTree.gen.ts
+
+# Astro のドキュメントサイトは対象外（lint と揃える）
+apps/docs/
