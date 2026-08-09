@@ -16,6 +16,8 @@ export default defineConfig(
     'apps/docs/**',
     // TanStack Router の生成物
     'apps/web/src/routeTree.gen.ts',
+    // wrangler types の生成物
+    'apps/web/worker-configuration.d.ts',
   ]),
   {
     files: ['**/*.{js,mjs,cjs,ts,tsx}'],
