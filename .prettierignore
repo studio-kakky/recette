@@ -3,10 +3,14 @@ dist/
 .astro/
 .tanstack/
 .vite/
+.wrangler/
 pnpm-lock.yaml
 
 # TanStack Router の生成物
 apps/web/src/routeTree.gen.ts
+
+# wrangler types の生成物
+apps/web/worker-configuration.d.ts
 
 # Astro のドキュメントサイトは対象外（lint と揃える）
 apps/docs/

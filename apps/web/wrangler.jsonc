@@ -6,13 +6,13 @@
   // TanStack Start が提供する Workers 用サーバエントリ
   "main": "@tanstack/react-start/server-entry",
   "observability": {
-    "enabled": true
+    "enabled": true,
   },
   // 画像（参照用 / 作った記録）の保存先。バケット作成手順は README.md を参照
   "r2_buckets": [
     {
       "binding": "IMAGES",
-      "bucket_name": "recette-images"
-    }
-  ]
+      "bucket_name": "recette-images",
+    },
+  ],
 }
