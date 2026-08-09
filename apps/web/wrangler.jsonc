@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "recette-web",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // TanStack Start が提供する Workers 用サーバエントリ
+  "main": "@tanstack/react-start/server-entry",
+  "observability": {
+    "enabled": true
+  },
+  // 画像（参照用 / 作った記録）の保存先。バケット作成手順は README.md を参照
+  "r2_buckets": [
+    {
+      "binding": "IMAGES",
+      "bucket_name": "recette-images"
+    }
+  ]
+}
