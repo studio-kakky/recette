@@ -8,10 +8,24 @@
     "docs:build": "pnpm --filter @recette/docs build",
     "docs:preview": "pnpm --filter @recette/docs preview",
     "web:dev": "pnpm --filter @recette/web dev",
-    "web:build": "pnpm --filter @recette/web build"
+    "web:build": "pnpm --filter @recette/web build",
+    "web:test": "pnpm --filter @recette/web test",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "packageManager": "pnpm@10.14.0"
+  "packageManager": "pnpm@10.14.0",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "prettier": "^3.9.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.66.0"
+  }
 }
