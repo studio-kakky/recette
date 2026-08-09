@@ -12,26 +12,40 @@ const tableConfigs = Object.values(schema).map((table) =>
  * 「すべてのデータが userId に紐づき、他ユーザーからは見えない」という前提を、
  * 外部キーのカスケード削除で担保できているかを確認する。
  */
+/**
+ * ユーザーに紐づかないテーブル。
+ *
+ * - `users` は紐づく先そのもの
+ * - `verifications` は better-auth が OAuth の state / PKCE を置く短命テーブルで、
+ *   ユーザーが確定する前にも書かれるため userId を持たない
+ */
+const userlessTables = ['users', 'verifications'];
+
 describe('schema', () => {
-  it('users を含むすべてのテーブルを定義している', () => {
+  it('アプリのテーブルと better-auth のコアテーブルをすべて定義している', () => {
     expect(tableConfigs.map((config) => config.name).sort()).toEqual([
+      'accounts',
       'cook_log_photos',
       'cook_logs',
       'ingredients',
       'photos',
       'recipe_tags',
       'recipes',
+      'sessions',
       'shopping_items',
       'steps',
       'tags',
       'users',
+      'verifications',
     ]);
   });
 
-  it('users 以外のテーブルはユーザーへ辿れる外部キーを持つ', () => {
+  it('users / verifications 以外のテーブルはユーザーへ辿れる外部キーを持つ', () => {
     const orphans = tableConfigs
       .filter(
-        (config) => config.name !== 'users' && config.foreignKeys.length === 0,
+        (config) =>
+          !userlessTables.includes(config.name) &&
+          config.foreignKeys.length === 0,
       )
       .map((config) => config.name);
 
