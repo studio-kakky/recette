@@ -1,2 +1,7 @@
 # wrangler / @cloudflare/vite-plugin のローカル状態（ローカル R2・D1 のデータなど）
 .wrangler/
+
+# ローカル開発用の環境変数（実際のシークレットが入る）。テンプレートは .dev.vars.example
+.dev.vars
+.dev.vars.*
+!.dev.vars.example

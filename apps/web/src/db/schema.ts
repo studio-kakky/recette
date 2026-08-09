@@ -13,7 +13,9 @@ import {
  *
  * 方針:
  * - 主キーは text の UUID。ID をアプリ側で採番できるため INSERT の往復が不要で、
- *   後続の認証基盤（better-auth）が使う text ID とも型が揃う
+ *   認証基盤（better-auth）が採番する text ID とも型が揃う
+ * - `users` / `sessions` / `accounts` / `verifications` は better-auth のコアスキーマ。
+ *   アプリ独自の User テーブルは持たず、better-auth の user をそのまま使う
  * - 日時は integer の Unix 秒（`{ mode: 'timestamp' }`）で保持し、TS 側では Date として扱う
  * - 「作った日」のような日付だけの値は `YYYY-MM-DD` の text（辞書順 = 時系列順）
  * - すべてのデータはユーザーに紐づく。所有者は `userId` を持つテーブルで直接、
@@ -32,31 +34,114 @@ const createdAt = () =>
     .notNull()
     .default(sql`(unixepoch())`);
 
+/** 更新日時 */
+const updatedAt = () =>
+  integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`);
+
 /** 並び順（0 始まりの昇順） */
 const order = () => integer('order').notNull();
 
 /** ストレージ上の画像キー。画像本体は R2（バインディング `IMAGES`）に置く */
 const storageKey = () => text('storage_key').notNull();
 
-// --- User ---------------------------------------------------------------
+// --- User / 認証 --------------------------------------------------------
 
-export const users = sqliteTable(
-  'users',
+/**
+ * ユーザー。better-auth の `user` モデルをそのままアプリの User として使う
+ * （drizzle アダプタには `usePlural: true` を渡し、複数形のテーブル名に対応させている）。
+ *
+ * OAuth プロバイダの情報は `accounts` が持つため、このテーブルには持たせない。
+ *
+ * 注意: better-auth の drizzle アダプタはモデルのフィールド名（camelCase）で
+ * drizzle のテーブルオブジェクトを引くため、プロパティ名は better-auth の
+ * フィールド名と一致させること（DB のカラム名は snake_case のままでよい）。
+ */
+export const users = sqliteTable('users', {
+  /** better-auth が採番する ID（アプリ側から作る場合は UUID） */
+  id: primaryId(),
+  /** 表示名。Google プロフィールの名前が入る */
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  emailVerified: integer('email_verified', { mode: 'boolean' })
+    .notNull()
+    .default(false),
+  /** アバター画像の URL */
+  image: text('image'),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** ログインセッション。better-auth がセッション Cookie の検証に使う */
+export const sessions = sqliteTable(
+  'sessions',
   {
     id: primaryId(),
-    /** OAuth プロバイダ名（例: `google`） */
-    provider: text('provider').notNull(),
-    /** プロバイダ内でのユーザー識別子 */
-    providerId: text('provider_id').notNull(),
-    displayName: text('display_name').notNull(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    token: text('token').notNull().unique(),
+    expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
     createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [index('sessions_user_id_idx').on(table.userId)],
+);
+
+/** 外部 ID プロバイダとの紐付け。Google OAuth のトークン類もここに入る */
+export const accounts = sqliteTable(
+  'accounts',
+  {
+    id: primaryId(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** プロバイダ内でのユーザー識別子 */
+    accountId: text('account_id').notNull(),
+    /** プロバイダ名（例: `google`） */
+    providerId: text('provider_id').notNull(),
+    accessToken: text('access_token'),
+    refreshToken: text('refresh_token'),
+    idToken: text('id_token'),
+    accessTokenExpiresAt: integer('access_token_expires_at', {
+      mode: 'timestamp',
+    }),
+    refreshTokenExpiresAt: integer('refresh_token_expires_at', {
+      mode: 'timestamp',
+    }),
+    scope: text('scope'),
+    /** メール + パスワード認証用。Google OAuth のみの現状では常に null */
+    password: text('password'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
   },
   (table) => [
-    uniqueIndex('users_provider_provider_id_unique').on(
-      table.provider,
+    uniqueIndex('accounts_provider_id_account_id_unique').on(
       table.providerId,
+      table.accountId,
     ),
+    index('accounts_user_id_idx').on(table.userId),
   ],
+);
+
+/**
+ * better-auth が使う短命トークンの置き場（OAuth の state / PKCE など）。
+ * ユーザー確定前にも書かれるため、ここだけは `userId` を持たない。
+ */
+export const verifications = sqliteTable(
+  'verifications',
+  {
+    id: primaryId(),
+    identifier: text('identifier').notNull(),
+    value: text('value').notNull(),
+    expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [index('verifications_identifier_idx').on(table.identifier)],
 );
 
 // --- Recipe -------------------------------------------------------------
@@ -73,9 +158,7 @@ export const recipes = sqliteTable(
     /** ブックマーク型レシピの参照元 URL */
     url: text('url'),
     createdAt: createdAt(),
-    updatedAt: integer('updated_at', { mode: 'timestamp' })
-      .notNull()
-      .default(sql`(unixepoch())`),
+    updatedAt: updatedAt(),
   },
   // 一覧は「自分のレシピを updatedAt 降順」で引くため複合インデックスを張る
   (table) => [
@@ -240,6 +323,12 @@ export const shoppingItems = sqliteTable(
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+export type Session = typeof sessions.$inferSelect;
+export type NewSession = typeof sessions.$inferInsert;
+export type Account = typeof accounts.$inferSelect;
+export type NewAccount = typeof accounts.$inferInsert;
+export type Verification = typeof verifications.$inferSelect;
+export type NewVerification = typeof verifications.$inferInsert;
 export type Recipe = typeof recipes.$inferSelect;
 export type NewRecipe = typeof recipes.$inferInsert;
 export type Ingredient = typeof ingredients.$inferSelect;

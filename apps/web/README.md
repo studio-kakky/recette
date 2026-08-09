@@ -2,6 +2,20 @@
 
 Recette のアプリ本体。TanStack Start (React) + Vite を Cloudflare Workers 上で動かす。
 
+## セットアップ
+
+```sh
+pnpm install
+
+# 環境変数のテンプレートをコピーして値を埋める（→「認証」の節）
+cp .dev.vars.example .dev.vars
+
+# ローカル D1 にマイグレーションを適用
+pnpm db:migrate:local
+
+pnpm dev
+```
+
 ## スクリプト
 
 リポジトリルートからは `pnpm web:dev` / `pnpm web:build` でも実行できる。
@@ -41,12 +55,16 @@ Recette のアプリ本体。TanStack Start (React) + Vite を Cloudflare Worker
 
 **`wrangler.jsonc` のバインディングを変更したら `pnpm cf-typegen` を実行し直すこと。**
 
-生成される `Env` インターフェースは以下のような形になる。
+生成される `Env` インターフェースは以下のような形になる。`.dev.vars` に書いた環境変数もここに載る（載るのは名前だけで、値は含まれない）。
 
 ```ts
 interface Env {
   IMAGES: R2Bucket;
   DB: D1Database;
+  BETTER_AUTH_SECRET: string;
+  BETTER_AUTH_URL: string;
+  GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
 }
 ```
 
@@ -56,7 +74,8 @@ interface Env {
 
 ### 設計の方針
 
-- **主キーは text の UUID**（`crypto.randomUUID()` をアプリ側で採番）。integer の autoincrement と違い INSERT 前に ID が確定するので、レシピと材料行をまとめて作るような処理で往復が要らない。後続で導入する認証基盤（better-auth）も text の ID を使うため、`userId` の型も揃う
+- **主キーは text の UUID**（`crypto.randomUUID()` をアプリ側で採番）。integer の autoincrement と違い INSERT 前に ID が確定するので、レシピと材料行をまとめて作るような処理で往復が要らない。認証基盤（better-auth）も text の ID を採番するため、`userId` の型も揃う
+- **`users` は better-auth の user モデルそのもの**。アプリ独自の User テーブルは持たない。`sessions` / `accounts` / `verifications` も better-auth のコアスキーマ（詳細は「認証」の節）
 - **日時は integer の Unix 秒**（`{ mode: 'timestamp' }`）。TS 側では `Date` として読み書きする。`created_at` / `updated_at` は DB 側にも `(unixepoch())` のデフォルトを持たせてある
 - **`cook_logs.cooked_at` は `YYYY-MM-DD` の text**。「作った日」は時刻を持たない値なので、辞書順 = 時系列順になる text で保持する
 - **材料の `amount` は text**。「適量」「大さじ2」を許容し、合算・換算はしない
@@ -95,6 +114,117 @@ export const listRecipes = createServerFn().handler(async () => {
 });
 ```
 
+## 認証 (better-auth + Google OAuth)
+
+ログイン手段は **Google OAuth のみ**。セッションもユーザーも D1 に保存する（セルフホスト。外部の認証 SaaS は使わない）。
+
+### 構成
+
+| ファイル                   | 役割                                                                                  |
+| -------------------------- | ------------------------------------------------------------------------------------- |
+| `src/lib/auth.server.ts`   | better-auth 本体の設定と、セッション検証ヘルパー（`requireUser` / `getOptionalUser`） |
+| `src/lib/session.ts`       | ログイン状態をクライアントから取れるようにする Server Function                        |
+| `src/lib/auth-client.ts`   | ブラウザから `/api/auth/*` を叩くクライアント（`authClient`）                         |
+| `src/routes/api/auth/$.ts` | better-auth のハンドラを `/api/auth/*` にマウントするサーバールート                   |
+| `src/routes/login.tsx`     | `/login`。「Google でログイン」ボタンだけの最小 UI                                    |
+
+**`.server.ts` の付いたモジュールをクライアントから import しないこと。** D1 バインディングやシークレットを参照するため、クライアントバンドルに入るとビルドが落ちる（TanStack Start の import protection が検出する）。クライアントから使いたい処理は Server Function 越しに呼ぶ。
+
+### テーブル
+
+better-auth のコアスキーマを `src/db/schema.ts` にそのまま定義し、drizzle アダプタに `usePlural: true` を渡して複数形のテーブル名と対応させている。
+
+| テーブル        | 内容                                                 |
+| --------------- | ---------------------------------------------------- |
+| `users`         | ユーザー。アプリの User そのもの                     |
+| `sessions`      | ログインセッション（セッション Cookie の検証に使う） |
+| `accounts`      | 外部 ID プロバイダとの紐付けと OAuth トークン        |
+| `verifications` | OAuth の state / PKCE を置く短命テーブル             |
+
+アダプタは **better-auth のフィールド名（camelCase）で drizzle のテーブルオブジェクトを引く**ので、プロパティ名は better-auth に合わせること（DB のカラム名は snake_case のままでよい）。カラムを増やすときは `pnpm db:generate` → `pnpm db:migrate:local`。
+
+### 環境変数
+
+`.dev.vars.example` をコピーして `.dev.vars` を作る（`.dev.vars` は Git 管理外）。
+
+| 変数                   | 内容                                                                |
+| ---------------------- | ------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`   | セッション Cookie の署名などに使う秘密鍵。`openssl rand -base64 32` |
+| `BETTER_AUTH_URL`      | アプリの公開 URL。ローカルは `http://localhost:3000`                |
+| `GOOGLE_CLIENT_ID`     | Google OAuth クライアント ID                                        |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth クライアントシークレット                               |
+
+変数を増やしたら `pnpm cf-typegen` で `worker-configuration.d.ts` を更新する。
+
+### Google OAuth クライアントの発行（手作業）
+
+1. [Google Cloud Console](https://console.cloud.google.com/) でプロジェクトを作る（既存のものでもよい）
+2. 「APIとサービス」→「OAuth 同意画面」を設定する
+   - User Type は **外部**、公開ステータスは「テスト」のままでよい
+   - スコープは `email` / `profile` / `openid` の 3 つ
+   - 「テストユーザー」に自分と身内の Google アカウントを追加する（テスト中はここに載っているアカウントしかログインできない）
+3. 「APIとサービス」→「認証情報」→「認証情報を作成」→「OAuth クライアント ID」
+   - アプリケーションの種類: **ウェブ アプリケーション**
+   - **承認済みの JavaScript 生成元**
+     - `http://localhost:3000`
+     - `https://<本番ドメイン>`
+   - **承認済みのリダイレクト URI**（better-auth のコールバックパスは `/api/auth/callback/google` 固定）
+     - `http://localhost:3000/api/auth/callback/google`
+     - `https://<本番ドメイン>/api/auth/callback/google`
+4. 発行されたクライアント ID / シークレットを `.dev.vars`（ローカル）と `wrangler secret`（本番）に入れる
+
+### 動作確認
+
+```sh
+pnpm db:migrate:local
+pnpm dev
+```
+
+- http://localhost:3000/login を開き「Google でログイン」→ Google の同意画面に飛ぶ
+- 同意するとトップに戻り、表示名とログアウトボタンが出る
+- ログアウトするとログイン前の表示に戻る
+
+クレデンシャルを入れる前でも、以下でハンドラが生きていることは確認できる。
+
+```sh
+curl http://localhost:3000/api/auth/ok           # => {"ok":true}
+curl http://localhost:3000/api/auth/get-session  # => null（未ログイン）
+```
+
+### Server Function でのセッション検証
+
+`requireUser()` は未ログインなら `/login` へリダイレクトし、ログイン済みならユーザーを返す。**すべての Server Function の先頭で呼び、返ってきた `user.id` でデータを絞ること**（データはユーザー単位で分離する / docs: 非機能要件）。
+
+```ts
+import { createServerFn } from '@tanstack/react-start';
+import { desc, eq } from 'drizzle-orm';
+
+import { getDatabase } from '~/db/client';
+import { recipes } from '~/db/schema';
+import { requireUser } from '~/lib/auth.server';
+
+export const listRecipes = createServerFn().handler(async () => {
+  const user = await requireUser();
+  const db = getDatabase();
+
+  return db
+    .select()
+    .from(recipes)
+    .where(eq(recipes.userId, user.id))
+    .orderBy(desc(recipes.updatedAt))
+    .all();
+});
+```
+
+リダイレクトさせずに未ログインを扱いたい場合（ログイン状態の出し分けなど）は `getOptionalUser()` を使う。ルートのローダーから呼ぶ用の Server Function は `~/lib/session` の `fetchOptionalUser` にある。
+
+```tsx
+export const Route = createFileRoute('/')({
+  loader: () => fetchOptionalUser(),
+  component: Home,
+});
+```
+
 ## デプロイ前の準備
 
 以下は Cloudflare アカウントに対する操作。まだ実行していない。
@@ -112,6 +242,12 @@ pnpm cf-typegen
 
 # 本番 D1 にマイグレーションを適用
 pnpm db:migrate:remote
+
+# 認証用のシークレットを登録（値は対話的に入力する）
+pnpm exec wrangler secret put BETTER_AUTH_SECRET
+pnpm exec wrangler secret put BETTER_AUTH_URL
+pnpm exec wrangler secret put GOOGLE_CLIENT_ID
+pnpm exec wrangler secret put GOOGLE_CLIENT_SECRET
 
 # デプロイ
 pnpm run deploy

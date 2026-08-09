@@ -1,0 +1,18 @@
+# ローカル開発用の環境変数のテンプレート。
+# このファイルを `.dev.vars` にコピーして値を埋めると `pnpm dev` / `pnpm preview` で読み込まれる。
+# `.dev.vars` は Git 管理外（値は本物のシークレット）。
+# 本番は `pnpm exec wrangler secret put <NAME>` で Cloudflare 側に登録する。
+#
+# 変数を増やしたら `pnpm cf-typegen` を実行して worker-configuration.d.ts を更新すること。
+
+# セッション Cookie の署名などに使う秘密鍵。`openssl rand -base64 32` で生成する
+BETTER_AUTH_SECRET="dev-secret-change-me"
+
+# アプリの公開 URL。OAuth のコールバック URL の組み立てに使う
+# ローカル: http://localhost:3000 / 本番: https://<your-domain>
+BETTER_AUTH_URL="http://localhost:3000"
+
+# Google Cloud Console の OAuth 2.0 クライアント（ウェブアプリケーション）の値
+# 発行手順は README.md の「Google OAuth クライアントの発行」を参照
+GOOGLE_CLIENT_ID="dummy-google-client-id"
+GOOGLE_CLIENT_SECRET="dummy-google-client-secret"
