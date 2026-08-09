@@ -6,7 +6,9 @@
   "scripts": {
     "docs:dev": "pnpm --filter @recette/docs dev",
     "docs:build": "pnpm --filter @recette/docs build",
-    "docs:preview": "pnpm --filter @recette/docs preview"
+    "docs:preview": "pnpm --filter @recette/docs preview",
+    "web:dev": "pnpm --filter @recette/web dev",
+    "web:build": "pnpm --filter @recette/web build"
   },
   "keywords": [],
   "author": "",

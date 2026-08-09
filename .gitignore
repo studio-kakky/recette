@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .astro/
+.tanstack/
+.vite/
 .DS_Store
 *.log
 .env
