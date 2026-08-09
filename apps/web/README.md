@@ -6,14 +6,14 @@ Recette のアプリ本体。TanStack Start (React) + Vite を Cloudflare Worker
 
 リポジトリルートからは `pnpm web:dev` / `pnpm web:build` でも実行できる。
 
-| コマンド | 内容 |
-| --- | --- |
-| `pnpm dev` | 開発サーバ (http://localhost:3000)。SSR は Workers ランタイム (workerd) 上で動く |
-| `pnpm build` | 本番ビルド。`dist/client`（静的アセット）と `dist/server`（Worker + デプロイ用 `wrangler.json`）を出力 |
-| `pnpm preview` | ビルド成果物を Workers ランタイムでプレビュー |
+| コマンド          | 内容                                                                                                       |
+| ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`        | 開発サーバ (http://localhost:3000)。SSR は Workers ランタイム (workerd) 上で動く                           |
+| `pnpm build`      | 本番ビルド。`dist/client`（静的アセット）と `dist/server`（Worker + デプロイ用 `wrangler.json`）を出力     |
+| `pnpm preview`    | ビルド成果物を Workers ランタイムでプレビュー                                                              |
 | `pnpm run deploy` | ビルドして Cloudflare Workers にデプロイ（`deploy` は pnpm の組み込みコマンドと衝突するため `run` が必須） |
-| `pnpm cf-typegen` | `wrangler.jsonc` のバインディングから型を生成 |
-| `pnpm typecheck` | 型チェック |
+| `pnpm cf-typegen` | `wrangler.jsonc` のバインディングから型を生成                                                              |
+| `pnpm typecheck`  | 型チェック                                                                                                 |
 
 ## Cloudflare 構成
 
@@ -23,9 +23,9 @@ Recette のアプリ本体。TanStack Start (React) + Vite を Cloudflare Worker
 
 ### バインディング
 
-| バインディング | 種別 | リソース名 | 用途 |
-| --- | --- | --- | --- |
-| `IMAGES` | R2 | `recette-images` | レシピの写真（参照用 / 作った記録） |
+| バインディング | 種別 | リソース名       | 用途                                |
+| -------------- | ---- | ---------------- | ----------------------------------- |
+| `IMAGES`       | R2   | `recette-images` | レシピの写真（参照用 / 作った記録） |
 
 開発時 (`pnpm dev` / `pnpm preview`) はローカルにシミュレートされたバケットが使われるため、Cloudflare アカウントは不要。
 
