@@ -15,4 +15,15 @@
       "bucket_name": "recette-images",
     },
   ],
+  // レシピ本体のデータベース。DB 作成手順は README.md を参照
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "recette-db",
+      // TODO: `wrangler d1 create recette-db` の出力した UUID に差し替える（--local では未使用）
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      // drizzle.config.ts の `out` と揃える
+      "migrations_dir": "drizzle/migrations",
+    },
+  ],
 }

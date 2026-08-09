@@ -12,6 +12,8 @@
     "web:preview": "pnpm --filter @recette/web preview",
     "web:deploy": "pnpm --filter @recette/web run deploy",
     "web:test": "pnpm --filter @recette/web test",
+    "web:db:generate": "pnpm --filter @recette/web db:generate",
+    "web:db:migrate:local": "pnpm --filter @recette/web db:migrate:local",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
