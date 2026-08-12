@@ -3,7 +3,7 @@ import type { RecipeStore } from '~/db/recipe-store';
 import type { NormalizedRecipe } from './recipe-input';
 
 /**
- * レシピの作成・更新・編集用取得のユースケース。
+ * レシピの作成・更新・取得・削除のユースケース。
  *
  * DB は `RecipeStore` 越しにしか触らないので、偽の store を渡せば認可も
  * 行の並びもユニットテストで確かめられる（D1 が要らない）。
@@ -29,6 +29,24 @@ export type RecipeFormValues = {
   readonly ingredients: ReadonlyArray<{
     readonly name: string;
     readonly amount: string;
+  }>;
+  readonly steps: ReadonlyArray<{ readonly body: string }>;
+  readonly tagNames: readonly string[];
+};
+
+/**
+ * 詳細画面に出す 1 件分のレシピ。
+ *
+ * 未入力は空文字に丸めず `null` / 空配列のまま返し、表示するかどうかは
+ * 画面側に委ねる（フォームと違い「未入力なら出さない」を選べるようにする）。
+ */
+export type RecipeDetail = {
+  readonly title: string;
+  readonly memo: string | null;
+  readonly url: string | null;
+  readonly ingredients: ReadonlyArray<{
+    readonly name: string;
+    readonly amount: string | null;
   }>;
   readonly steps: ReadonlyArray<{ readonly body: string }>;
   readonly tagNames: readonly string[];
@@ -139,12 +157,12 @@ export const editRecipe = async (
   );
 };
 
-/** 編集フォームの初期値を取り出す */
-export const getRecipeForEdit = async (
+/** 詳細表示用に 1 件のレシピを材料・手順・タグごと取り出す */
+export const getRecipeDetail = async (
   store: RecipeStore,
   userId: string,
   recipeId: string,
-): Promise<RecipeFormValues> => {
+): Promise<RecipeDetail> => {
   const recipe = await requireOwnedRecipe(store, userId, recipeId);
 
   const [ingredients, steps, tagNames] = await Promise.all([
@@ -155,13 +173,43 @@ export const getRecipeForEdit = async (
 
   return {
     title: recipe.title,
-    memo: recipe.memo ?? '',
-    url: recipe.url ?? '',
-    ingredients: ingredients.map((row) => ({
-      name: row.name,
-      amount: row.amount ?? '',
-    })),
+    memo: recipe.memo,
+    url: recipe.url,
+    ingredients,
     steps,
     tagNames,
   };
+};
+
+/** 編集フォームの初期値を取り出す */
+export const getRecipeForEdit = async (
+  store: RecipeStore,
+  userId: string,
+  recipeId: string,
+): Promise<RecipeFormValues> => {
+  const recipe = await getRecipeDetail(store, userId, recipeId);
+
+  // フォームの入力欄は空文字を扱うため、未入力（NULL）はここで空文字に戻す
+  return {
+    title: recipe.title,
+    memo: recipe.memo ?? '',
+    url: recipe.url ?? '',
+    ingredients: recipe.ingredients.map((row) => ({
+      name: row.name,
+      amount: row.amount ?? '',
+    })),
+    steps: recipe.steps,
+    tagNames: recipe.tagNames,
+  };
+};
+
+/** レシピを削除する。配下の行は FK のカスケードでまとめて消える */
+export const removeRecipe = async (
+  store: RecipeStore,
+  userId: string,
+  recipeId: string,
+): Promise<void> => {
+  await requireOwnedRecipe(store, userId, recipeId);
+
+  await store.deleteRecipe(recipeId);
 };

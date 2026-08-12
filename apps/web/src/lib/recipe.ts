@@ -11,11 +11,13 @@ import {
   RecipeNotFoundError,
   addRecipe,
   editRecipe,
+  getRecipeDetail,
   getRecipeForEdit,
+  removeRecipe,
 } from './recipe-service';
 
 /**
- * レシピの作成・更新・編集用取得の Server Function。
+ * レシピの作成・更新・取得・削除の Server Function。
  *
  * 認可はすべてここで完結させる（`requireUser()` のユーザー ID を必ず使い、
  * クライアントから来た userId は一切信用しない）。
@@ -67,6 +69,32 @@ export const updateRecipe = createServerFn({ method: 'POST' })
     ).catch(toNotFound);
 
     return { recipeId: data.recipeId };
+  });
+
+/** レシピを削除する */
+export const deleteRecipe = createServerFn({ method: 'POST' })
+  .inputValidator(recipeIdSchema)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+
+    await removeRecipe(
+      createRecipeStore(getDatabase()),
+      user.id,
+      data.recipeId,
+    ).catch(toNotFound);
+  });
+
+/** 詳細表示用に 1 件のレシピを取得する */
+export const fetchRecipeDetail = createServerFn({ method: 'GET' })
+  .inputValidator(recipeIdSchema)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+
+    return getRecipeDetail(
+      createRecipeStore(getDatabase()),
+      user.id,
+      data.recipeId,
+    ).catch(toNotFound);
   });
 
 /** 編集フォームの初期値を取得する */

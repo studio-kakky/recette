@@ -1,13 +1,22 @@
-import { Link, createFileRoute, useNavigate } from '@tanstack/react-router';
+import {
+  createFileRoute,
+  useNavigate,
+  useRouter,
+} from '@tanstack/react-router';
 
 import { RecipeForm } from '~/components/recipe-form';
-import { Button } from '~/components/ui/button';
+import { RecipeNotFound } from '~/components/recipe-not-found';
 import { fetchRecipeForEdit, fetchTagNames, updateRecipe } from '~/lib/recipe';
 
 const EditRecipe = () => {
   const { recipe, tagOptions } = Route.useLoaderData();
   const { recipeId } = Route.useParams();
+  const router = useRouter();
   const navigate = useNavigate();
+
+  /** 編集の出入り口はどちらも詳細画面に揃える */
+  const backToDetail = () =>
+    navigate({ to: '/recipes/$recipeId', params: { recipeId } });
 
   // ヘッダー・ナビは共通シェル（`_authenticated.tsx`）が持つので、ここは本文だけを描く
   return (
@@ -18,28 +27,14 @@ const EditRecipe = () => {
       submitLabel="更新する"
       onSubmit={async (values) => {
         await updateRecipe({ data: { recipeId, recipe: values } });
-        // レシピ詳細は未実装のため、保存後は一覧へ戻す
-        await navigate({ to: '/' });
+        // 詳細のローダーが古い値を返さないよう、遷移前にキャッシュを捨てる
+        await router.invalidate();
+        await backToDetail();
       }}
-      onCancel={() => void navigate({ to: '/' })}
+      onCancel={() => void backToDetail()}
     />
   );
 };
-
-/** 存在しないレシピ・他ユーザーのレシピはどちらもここに来る */
-const RecipeNotFound = () => (
-  <section className="flex flex-col items-center gap-4 py-12 text-center">
-    <h1 className="font-heading text-xl font-bold">
-      レシピが見つかりませんでした
-    </h1>
-    <p className="text-muted-foreground text-sm">
-      削除されたか、URL が間違っている可能性があります。
-    </p>
-    <Button render={<Link to="/" />} size="lg">
-      レシピ一覧へ戻る
-    </Button>
-  </section>
-);
 
 export const Route = createFileRoute('/_authenticated/recipes/$recipeId/edit')({
   loader: async ({ params }) => {
