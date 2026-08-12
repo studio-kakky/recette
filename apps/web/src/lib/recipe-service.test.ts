@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { RecipeStore } from '~/db/recipe-store';
+import type { ShoppingItemStore } from '~/db/shopping-item-store';
 
 import type { NormalizedRecipe } from './recipe-input';
 import {
   RecipeNotFoundError,
+  addIngredientsToShoppingList,
   addRecipe,
   editRecipe,
   getRecipeDetail,
@@ -243,6 +245,25 @@ const createFakeStore = () => {
     cookLogs,
     photos,
   };
+};
+
+/** メモリ上の `ShoppingItemStore`。追加された行をそのまま覗ける */
+const createFakeShoppingItemStore = () => {
+  const rows: Array<{
+    userId: string;
+    label: string;
+    recipeId: string | null;
+  }> = [];
+
+  const store: ShoppingItemStore = {
+    insertShoppingItems: (inserted) => {
+      rows.push(...inserted.map((row) => ({ ...row })));
+
+      return Promise.resolve();
+    },
+  };
+
+  return { store, rows };
 };
 
 const recipe = (values: Partial<NormalizedRecipe> = {}): NormalizedRecipe => ({
@@ -622,6 +643,138 @@ describe('listRecipeSummaries', () => {
       { id: untouched, cookCount: 0, tagNames: [] },
       { id: cooked, cookCount: 1, tagNames: ['定番'] },
     ]);
+  });
+});
+
+describe('addIngredientsToShoppingList', () => {
+  /** 材料入りのレシピを 1 件持った状態を作る */
+  const setup = async () => {
+    const fake = createFakeStore();
+    const shopping = createFakeShoppingItemStore();
+    const recipeId = await addRecipe(
+      fake.store,
+      OWNER,
+      recipe({
+        ingredients: [
+          { name: '豚肉', amount: '300g', order: 0 },
+          { name: '玉ねぎ', amount: '1個', order: 1 },
+          { name: 'こしょう', amount: null, order: 2 },
+        ],
+      }),
+    );
+
+    return { fake, shopping, recipeId };
+  };
+
+  it('選んだ材料を name + amount のラベルで追加する', async () => {
+    const { fake, shopping, recipeId } = await setup();
+
+    await expect(
+      addIngredientsToShoppingList(
+        fake.store,
+        shopping.store,
+        OWNER,
+        recipeId,
+        [0, 2],
+      ),
+    ).resolves.toBe(2);
+
+    expect(shopping.rows).toEqual([
+      { userId: OWNER, label: '豚肉 300g', recipeId },
+      // 分量が未入力なら材料名だけ
+      { userId: OWNER, label: 'こしょう', recipeId },
+    ]);
+  });
+
+  it('選んだ順ではなく材料の並び順で追加し、同じ行の重複指定は 1 件にまとめる', async () => {
+    const { fake, shopping, recipeId } = await setup();
+
+    await expect(
+      addIngredientsToShoppingList(
+        fake.store,
+        shopping.store,
+        OWNER,
+        recipeId,
+        [2, 0, 0],
+      ),
+    ).resolves.toBe(2);
+
+    expect(shopping.rows.map((row) => row.label)).toEqual([
+      '豚肉 300g',
+      'こしょう',
+    ]);
+  });
+
+  it('同じ材料を続けて追加できる（重複は許容する）', async () => {
+    const { fake, shopping, recipeId } = await setup();
+
+    await addIngredientsToShoppingList(
+      fake.store,
+      shopping.store,
+      OWNER,
+      recipeId,
+      [0],
+    );
+    await addIngredientsToShoppingList(
+      fake.store,
+      shopping.store,
+      OWNER,
+      recipeId,
+      [0],
+    );
+
+    expect(shopping.rows.map((row) => row.label)).toEqual([
+      '豚肉 300g',
+      '豚肉 300g',
+    ]);
+  });
+
+  it('材料の数を超えた指定は無視する', async () => {
+    const { fake, shopping, recipeId } = await setup();
+
+    await expect(
+      addIngredientsToShoppingList(
+        fake.store,
+        shopping.store,
+        OWNER,
+        recipeId,
+        [1, 99],
+      ),
+    ).resolves.toBe(1);
+
+    expect(shopping.rows.map((row) => row.label)).toEqual(['玉ねぎ 1個']);
+  });
+
+  it('他ユーザーのレシピの材料は追加できない', async () => {
+    const { fake, shopping, recipeId } = await setup();
+
+    await expect(
+      addIngredientsToShoppingList(
+        fake.store,
+        shopping.store,
+        OTHER,
+        recipeId,
+        [0, 1, 2],
+      ),
+    ).rejects.toBeInstanceOf(RecipeNotFoundError);
+
+    expect(shopping.rows).toEqual([]);
+  });
+
+  it('存在しないレシピの材料は追加できない', async () => {
+    const { fake, shopping } = await setup();
+
+    await expect(
+      addIngredientsToShoppingList(
+        fake.store,
+        shopping.store,
+        OWNER,
+        'recipe-unknown',
+        [0],
+      ),
+    ).rejects.toBeInstanceOf(RecipeNotFoundError);
+
+    expect(shopping.rows).toEqual([]);
   });
 });
 

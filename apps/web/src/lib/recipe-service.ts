@@ -1,6 +1,9 @@
 import type { RecipeStore } from '~/db/recipe-store';
+import type { ShoppingItemStore } from '~/db/shopping-item-store';
 
+import { formatIngredientRowLabel } from './ingredient';
 import type { NormalizedRecipe } from './recipe-input';
+import { truncateShoppingItemLabel } from './shopping-item';
 
 /**
  * レシピの作成・更新・取得・削除のユースケース。
@@ -263,6 +266,42 @@ export const getRecipeForEdit = async (
     steps: recipe.steps,
     tagNames: recipe.tagNames,
   };
+};
+
+/**
+ * 選んだ材料を買い物リストへ追加し、追加できた件数を返す（docs: requirements/functional.md §5）。
+ *
+ * 材料は「詳細画面に並んでいる順（`order` 昇順）の何番目か」で指定する。
+ * ラベルはクライアントから受け取らず、ここで DB の行から組み立て直す。
+ *
+ * 同じ材料を何度追加してもよい（要らなくなったら買い物リスト側で消せる）。
+ * 範囲外の添字は黙って捨てる。追加後にレシピを編集すると番号がずれるが、
+ * 画面はローダーの値をそのまま見ているので、通常の操作でずれることはない。
+ */
+export const addIngredientsToShoppingList = async (
+  store: RecipeStore,
+  shoppingItemStore: ShoppingItemStore,
+  userId: string,
+  recipeId: string,
+  ingredientIndexes: readonly number[],
+): Promise<number> => {
+  await requireOwnedRecipe(store, userId, recipeId);
+
+  const ingredients = await store.findIngredients(recipeId);
+  // 同じ行を 2 回選べないよう重ねて弾き、材料の並び順で追加する
+  const rows = [...new Set(ingredientIndexes)]
+    .sort((a, b) => a - b)
+    .map((index) => ingredients[index])
+    .filter((row) => row !== undefined)
+    .map((row) => ({
+      userId,
+      label: truncateShoppingItemLabel(formatIngredientRowLabel(row)),
+      recipeId,
+    }));
+
+  await shoppingItemStore.insertShoppingItems(rows);
+
+  return rows.length;
 };
 
 /** レシピを削除する。配下の行は FK のカスケードでまとめて消える */

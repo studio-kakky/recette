@@ -10,6 +10,7 @@ import {
   groupShoppingItems,
   shoppingItemLabelSchema,
   toggleShoppingItemInputSchema,
+  truncateShoppingItemLabel,
   type ShoppingListItem,
 } from './shopping-item';
 
@@ -42,6 +43,23 @@ describe('shoppingItemLabelSchema', () => {
 
     expect(shoppingItemLabelSchema.parse(max)).toBe(max);
     expect(shoppingItemLabelSchema.safeParse(`${max}あ`).success).toBe(false);
+  });
+});
+
+describe('truncateShoppingItemLabel', () => {
+  it('上限ちょうどのラベルはそのまま返す', () => {
+    const max = 'あ'.repeat(SHOPPING_ITEM_LABEL_MAX_LENGTH);
+
+    expect(truncateShoppingItemLabel(max)).toBe(max);
+  });
+
+  it('上限を超えたラベルは末尾を省略して上限内に収める', () => {
+    const tooLong = 'あ'.repeat(SHOPPING_ITEM_LABEL_MAX_LENGTH + 10);
+    const truncated = truncateShoppingItemLabel(tooLong);
+
+    expect(truncated).toHaveLength(SHOPPING_ITEM_LABEL_MAX_LENGTH);
+    expect(truncated.endsWith('…')).toBe(true);
+    expect(shoppingItemLabelSchema.safeParse(truncated).success).toBe(true);
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatIngredientLabel } from './ingredient';
+import { formatIngredientLabel, formatIngredientRowLabel } from './ingredient';
 
 describe('formatIngredientLabel', () => {
   it('数値と単位の分量を材料名の後ろに並べる', () => {
@@ -58,5 +58,25 @@ describe('formatIngredientLabel', () => {
 
   it('材料名が空なら例外を投げる', () => {
     expect(() => formatIngredientLabel('   ')).toThrow('材料名が空です');
+  });
+});
+
+describe('formatIngredientRowLabel', () => {
+  it('保存済みの分量を材料名の後ろに並べる', () => {
+    expect(formatIngredientRowLabel({ name: '豚肉', amount: '300g' })).toBe(
+      '豚肉 300g',
+    );
+  });
+
+  it('数値で表せない分量もそのまま並べる', () => {
+    expect(formatIngredientRowLabel({ name: '塩', amount: '少々' })).toBe(
+      '塩 少々',
+    );
+  });
+
+  it('分量が未入力（NULL）なら材料名だけを返す', () => {
+    expect(formatIngredientRowLabel({ name: 'こしょう', amount: null })).toBe(
+      'こしょう',
+    );
   });
 });
