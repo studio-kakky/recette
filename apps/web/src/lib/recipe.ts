@@ -4,11 +4,13 @@ import * as z from 'zod';
 
 import { getDatabase } from '~/db/client';
 import { createRecipeStore } from '~/db/recipe-store';
+import { createShoppingItemStore } from '~/db/shopping-item-store';
 
 import { requireUser } from './auth.server';
 import { normalizedRecipeInputSchema } from './recipe-input';
 import {
   RecipeNotFoundError,
+  addIngredientsToShoppingList,
   addRecipe,
   editRecipe,
   getRecipeDetail,
@@ -40,6 +42,12 @@ const recipeIdSchema = z.object({ recipeId: z.string().min(1) });
 const updateRecipeInputSchema = z.object({
   recipeId: z.string().min(1),
   recipe: normalizedRecipeInputSchema,
+});
+
+/** 買い物リストへ送る材料の指定（詳細画面に並んでいる順の添字） */
+const addIngredientsInputSchema = z.object({
+  recipeId: z.string().min(1),
+  ingredientIndexes: z.array(z.int().nonnegative()).min(1),
 });
 
 /** 一覧（ホーム）に出す自分のレシピを取得する */
@@ -92,6 +100,29 @@ export const deleteRecipe = createServerFn({ method: 'POST' })
       user.id,
       data.recipeId,
     ).catch(toNotFound);
+  });
+
+/**
+ * 選んだ材料を買い物リストへ送る。
+ *
+ * 追加するラベルはサーバー側で材料行から組み立てるので、
+ * クライアントからは「どの行か」だけを受け取る。
+ */
+export const sendIngredientsToShoppingList = createServerFn({ method: 'POST' })
+  .inputValidator(addIngredientsInputSchema)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    const db = getDatabase();
+
+    const addedCount = await addIngredientsToShoppingList(
+      createRecipeStore(db),
+      createShoppingItemStore(db),
+      user.id,
+      data.recipeId,
+      data.ingredientIndexes,
+    ).catch(toNotFound);
+
+    return { addedCount };
   });
 
 /** 詳細表示用に 1 件のレシピを取得する */

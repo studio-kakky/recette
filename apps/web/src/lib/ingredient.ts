@@ -40,3 +40,22 @@ export const formatIngredientLabel = (
     ? trimmedName
     : `${trimmedName} ${formattedAmount}`;
 };
+
+/**
+ * 保存済みの材料行からラベルを組み立てる。
+ *
+ * DB の `amount` は「300g」「少々」をまとめて受けるフリーテキストなので、
+ * 数値と単位には分けずに `note` として扱う。
+ *
+ * @example
+ * formatIngredientRowLabel({ name: '豚肉', amount: '300g' }); // '豚肉 300g'
+ * formatIngredientRowLabel({ name: 'こしょう', amount: null }); // 'こしょう'
+ */
+export const formatIngredientRowLabel = (row: {
+  readonly name: string;
+  readonly amount: string | null;
+}): string =>
+  formatIngredientLabel(
+    row.name,
+    row.amount === null ? undefined : { type: 'note', text: row.amount },
+  );

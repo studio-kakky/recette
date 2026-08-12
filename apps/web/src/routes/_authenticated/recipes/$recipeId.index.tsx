@@ -15,6 +15,7 @@ import {
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
+import { RecipeIngredients } from '~/components/recipe-ingredients';
 import { RecipeNotFound } from '~/components/recipe-not-found';
 import { Button } from '~/components/ui/button';
 import { deleteRecipe, fetchRecipeDetail } from '~/lib/recipe';
@@ -122,24 +123,10 @@ const RecipeDetail = () => {
       </header>
 
       {recipe.ingredients.length > 0 && (
-        <Section title="材料">
-          <ul className="border-border bg-card divide-border divide-y rounded-xl border">
-            {recipe.ingredients.map((ingredient, index) => (
-              // 同じ材料名を 2 行書けるので、並び順を含めたキーにする
-              <li
-                key={`${index}-${ingredient.name}`}
-                className="flex items-baseline justify-between gap-3 px-3 py-2.5 text-sm"
-              >
-                <span>{ingredient.name}</span>
-                {ingredient.amount !== null && (
-                  <span className="text-muted-foreground shrink-0 tabular-nums">
-                    {ingredient.amount}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </Section>
+        <RecipeIngredients
+          recipeId={recipeId}
+          ingredients={recipe.ingredients}
+        />
       )}
 
       {recipe.steps.length > 0 && (

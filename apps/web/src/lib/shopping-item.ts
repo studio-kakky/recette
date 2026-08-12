@@ -29,6 +29,18 @@ export const shoppingItemLabelSchema = z
   );
 
 /**
+ * 上限を超えるラベルを末尾を省いて収める。
+ *
+ * 手入力は `shoppingItemLabelSchema` で弾けるが、レシピの材料から組み立てた
+ * ラベルは弾いても直す先が無い（買い物リスト側で編集できない）ため、
+ * 落とさずに切り詰めて追加する。
+ */
+export const truncateShoppingItemLabel = (label: string): string =>
+  label.length <= SHOPPING_ITEM_LABEL_MAX_LENGTH
+    ? label
+    : `${label.slice(0, SHOPPING_ITEM_LABEL_MAX_LENGTH - 1)}…`;
+
+/**
  * 追加の入力。ID はクライアントで採番して渡す
  * （楽観的に描いた行が、サーバーの応答を待たずにそのままチェックできる）。
  */
