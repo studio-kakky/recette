@@ -1,6 +1,11 @@
-import { asc, count, desc, eq, min } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, min, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
+import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
+
+import type { RecipeSearchCriteria } from '~/lib/recipe-search';
 
 import type { Database } from './client';
+import { LIKE_ESCAPE_CHARACTER, toLikeContainsPattern } from './like';
 import {
   cookLogs,
   ingredients,
@@ -10,6 +15,55 @@ import {
   steps,
   tags,
 } from './schema';
+
+/** `LIKE` の部分一致。メタ文字は打ち消してあるので `ESCAPE` 句を必ず添える */
+const likeContains = (column: SQLiteColumn, pattern: string): SQL =>
+  sql`${column} like ${pattern} escape ${LIKE_ESCAPE_CHARACTER}`;
+
+/**
+ * キーワードの絞り込み。タイトル・メモ・材料名のどれかに含まれていれば残す（OR）。
+ *
+ * 材料はレシピ 1 件に複数行あるため、結合ではなく `EXISTS` で「1 行でも一致するか」を見る
+ * （結合するとレシピが材料の数だけ重複してしまう）。
+ */
+const buildKeywordFilter = (keyword: string): SQL | undefined => {
+  const pattern = toLikeContainsPattern(keyword);
+
+  return or(
+    likeContains(recipes.title, pattern),
+    // メモ未入力（NULL）は LIKE の結果も NULL になり、一致扱いにならない
+    likeContains(recipes.memo, pattern),
+    sql`exists (select 1 from ${ingredients} where ${ingredients.recipeId} = ${recipes.id} and ${likeContains(ingredients.name, pattern)})`,
+  );
+};
+
+/**
+ * タグの絞り込み。選択したタグを **すべて** 持つレシピだけを残す（AND）。
+ *
+ * 「一致したタグの種類数 = 選択数」で AND を表現する。タグ名はユーザー内で
+ * ユニークなので、種類数を数えれば「どれか 1 つに複数回一致した」と区別できる。
+ */
+const buildTagFilter = (tagNames: readonly string[]): SQL =>
+  sql`(select count(distinct ${tags.name}) from ${recipeTags} inner join ${tags} on ${tags.id} = ${recipeTags.tagId} where ${recipeTags.recipeId} = ${recipes.id} and ${inArray(tags.name, [...tagNames])}) = ${tagNames.length}`;
+
+/**
+ * 一覧のしぼり込み条件（持ち主 + キーワード + タグ）を組み立てる。
+ *
+ * 持ち主の条件は常に付ける。検索条件が空なら持ち主だけで絞る（＝全件）。
+ */
+export const buildRecipeSearchFilter = (
+  userId: string,
+  criteria: RecipeSearchCriteria,
+): SQL | undefined =>
+  and(
+    eq(recipes.userId, userId),
+    criteria.keyword === null
+      ? undefined
+      : buildKeywordFilter(criteria.keyword),
+    criteria.tagNames.length === 0
+      ? undefined
+      : buildTagFilter(criteria.tagNames),
+  );
 
 /**
  * レシピの読み書きを行う永続化層。
@@ -40,8 +94,14 @@ export type RecipeStore = {
   findRecipeTagNames(recipeId: string): Promise<string[]>;
   /** ユーザーが持つタグの一覧（名前昇順） */
   listTags(userId: string): Promise<Array<{ id: string; name: string }>>;
-  /** ユーザーのレシピ本体（一覧のカードに出す分だけ） */
-  listRecipes(userId: string): Promise<
+  /**
+   * ユーザーのレシピ本体（一覧のカードに出す分だけ）。
+   * `criteria` で絞り込む（条件が空なら全件）。
+   */
+  listRecipes(
+    userId: string,
+    criteria: RecipeSearchCriteria,
+  ): Promise<
     Array<{
       id: string;
       title: string;
@@ -156,7 +216,7 @@ export const createRecipeStore = (db: Database): RecipeStore => ({
       .orderBy(asc(tags.name))
       .all(),
 
-  listRecipes: (userId) =>
+  listRecipes: (userId, criteria) =>
     db
       .select({
         id: recipes.id,
@@ -165,7 +225,7 @@ export const createRecipeStore = (db: Database): RecipeStore => ({
         updatedAt: recipes.updatedAt,
       })
       .from(recipes)
-      .where(eq(recipes.userId, userId))
+      .where(buildRecipeSearchFilter(userId, criteria))
       // `recipes_user_id_updated_at_idx` に乗る並び。最終的な並びはユースケース側で決める
       .orderBy(desc(recipes.updatedAt))
       .all(),

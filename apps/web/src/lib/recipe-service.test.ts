@@ -4,6 +4,7 @@ import type { RecipeStore } from '~/db/recipe-store';
 import type { ShoppingItemStore } from '~/db/shopping-item-store';
 
 import type { NormalizedRecipe } from './recipe-input';
+import { EMPTY_RECIPE_SEARCH_CRITERIA } from './recipe-search';
 import {
   RecipeNotFoundError,
   addIngredientsToShoppingList,
@@ -92,10 +93,37 @@ const createFakeStore = () => {
           .sort((a, b) => a.name.localeCompare(b.name)),
       ),
 
-    listRecipes: (userId) =>
-      Promise.resolve(
+    listRecipes: (userId, criteria) => {
+      // 実装（SQL）と同じ意味になるように書く。
+      // キーワードはタイトル・メモ・材料名のどれかに含まれれば一致（OR）、
+      // タグは選んだものをすべて持っていれば一致（AND）
+      const { keyword } = criteria;
+      const matchesKeyword = (recipe: RecipeRow) =>
+        keyword === null ||
+        [
+          recipe.title,
+          recipe.memo ?? '',
+          ...(ingredients.get(recipe.id) ?? []).map((row) => row.name),
+        ].some((value) => value.includes(keyword));
+
+      const matchesTags = (recipe: RecipeRow) => {
+        const names = new Set(
+          (recipeTags.get(recipe.id) ?? []).map(
+            (tagId) => tags.find((tag) => tag.id === tagId)?.name,
+          ),
+        );
+
+        return criteria.tagNames.every((name) => names.has(name));
+      };
+
+      return Promise.resolve(
         recipes
-          .filter((recipe) => recipe.userId === userId)
+          .filter(
+            (recipe) =>
+              recipe.userId === userId &&
+              matchesKeyword(recipe) &&
+              matchesTags(recipe),
+          )
           // 並び順はユースケース側の責務なので、ここでは作成順のまま返す
           .map(({ id, title, url }) => ({
             id,
@@ -103,7 +131,8 @@ const createFakeStore = () => {
             url,
             updatedAt: updatedAtById.get(id) ?? new Date(0),
           })),
-      ),
+      );
+    },
 
     listTagNamesByRecipe: (userId) => {
       const ids = recipeIdsOf(userId);
@@ -278,6 +307,9 @@ const recipe = (values: Partial<NormalizedRecipe> = {}): NormalizedRecipe => ({
 
 const OWNER = 'user-owner';
 const OTHER = 'user-other';
+
+/** 絞り込みなし（＝全件） */
+const NO_CRITERIA = EMPTY_RECIPE_SEARCH_CRITERIA;
 
 describe('addRecipe', () => {
   it('タイトルだけのレシピを保存できる', async () => {
@@ -552,7 +584,9 @@ describe('listRecipeSummaries', () => {
   it('レシピが 1 件も無ければ空になる', async () => {
     const fake = createFakeStore();
 
-    await expect(listRecipeSummaries(fake.store, OWNER)).resolves.toEqual([]);
+    await expect(
+      listRecipeSummaries(fake.store, OWNER, NO_CRITERIA),
+    ).resolves.toEqual([]);
   });
 
   it('自分のレシピだけを更新の新しい順に返す', async () => {
@@ -569,7 +603,7 @@ describe('listRecipeSummaries', () => {
     await editRecipe(fake.store, OWNER, first, recipe({ title: '味噌汁' }));
 
     await expect(
-      listRecipeSummaries(fake.store, OWNER).then((rows) =>
+      listRecipeSummaries(fake.store, OWNER, NO_CRITERIA).then((rows) =>
         rows.map((row) => row.title),
       ),
     ).resolves.toEqual(['味噌汁', '肉じゃが']);
@@ -589,7 +623,9 @@ describe('listRecipeSummaries', () => {
       { recipeId, storageKey: 'photos/first', order: 0 },
     );
 
-    await expect(listRecipeSummaries(fake.store, OWNER)).resolves.toEqual([
+    await expect(
+      listRecipeSummaries(fake.store, OWNER, NO_CRITERIA),
+    ).resolves.toEqual([
       {
         id: recipeId,
         title: 'カレー',
@@ -605,7 +641,9 @@ describe('listRecipeSummaries', () => {
     const fake = createFakeStore();
     const recipeId = await addRecipe(fake.store, OWNER, recipe());
 
-    await expect(listRecipeSummaries(fake.store, OWNER)).resolves.toEqual([
+    await expect(
+      listRecipeSummaries(fake.store, OWNER, NO_CRITERIA),
+    ).resolves.toEqual([
       {
         id: recipeId,
         title: 'カレー',
@@ -631,7 +669,7 @@ describe('listRecipeSummaries', () => {
     );
     fake.cookLogs.push({ recipeId: cooked });
 
-    const summaries = await listRecipeSummaries(fake.store, OWNER);
+    const summaries = await listRecipeSummaries(fake.store, OWNER, NO_CRITERIA);
 
     expect(
       summaries.map(({ id, cookCount, tagNames }) => ({
@@ -643,6 +681,95 @@ describe('listRecipeSummaries', () => {
       { id: untouched, cookCount: 0, tagNames: [] },
       { id: cooked, cookCount: 1, tagNames: ['定番'] },
     ]);
+  });
+
+  it('絞り込み条件をそのまま store に渡す（絞り込みは SQL に任せる）', async () => {
+    const fake = createFakeStore();
+    const criteria = { keyword: 'カレー', tagNames: ['和食'] };
+    const received: unknown[] = [];
+    const spied: RecipeStore = {
+      ...fake.store,
+      listRecipes: (userId, passed) => {
+        received.push(passed);
+
+        return fake.store.listRecipes(userId, passed);
+      },
+    };
+
+    await listRecipeSummaries(spied, OWNER, criteria);
+
+    expect(received).toEqual([criteria]);
+  });
+
+  it('キーワードで絞り込んでも、カードに出す情報は欠けない', async () => {
+    const fake = createFakeStore();
+    const target = await addRecipe(
+      fake.store,
+      OWNER,
+      recipe({
+        title: 'カレー',
+        url: 'https://example.com',
+        tagNames: ['和食'],
+      }),
+    );
+    await addRecipe(fake.store, OWNER, recipe({ title: '味噌汁' }));
+    fake.cookLogs.push({ recipeId: target }, { recipeId: target });
+    fake.photos.push({ recipeId: target, storageKey: 'photos/1', order: 0 });
+
+    await expect(
+      listRecipeSummaries(fake.store, OWNER, {
+        keyword: 'カレー',
+        tagNames: [],
+      }),
+    ).resolves.toEqual([
+      {
+        id: target,
+        title: 'カレー',
+        tagNames: ['和食'],
+        cookCount: 2,
+        hasUrl: true,
+        photoStorageKey: 'photos/1',
+      },
+    ]);
+  });
+
+  it('該当が無ければ空になる', async () => {
+    const fake = createFakeStore();
+    await addRecipe(fake.store, OWNER, recipe({ title: 'カレー' }));
+
+    await expect(
+      listRecipeSummaries(fake.store, OWNER, {
+        keyword: 'みつからない',
+        tagNames: [],
+      }),
+    ).resolves.toEqual([]);
+  });
+
+  it('絞り込んだ結果も更新の新しい順に並ぶ', async () => {
+    const fake = createFakeStore();
+    const first = await addRecipe(
+      fake.store,
+      OWNER,
+      recipe({ title: 'カレーうどん', tagNames: ['和食'] }),
+    );
+    await addRecipe(
+      fake.store,
+      OWNER,
+      recipe({ title: 'カレーライス', tagNames: ['和食'] }),
+    );
+    await editRecipe(
+      fake.store,
+      OWNER,
+      first,
+      recipe({ title: 'カレーうどん', tagNames: ['和食'] }),
+    );
+
+    await expect(
+      listRecipeSummaries(fake.store, OWNER, {
+        keyword: 'カレー',
+        tagNames: ['和食'],
+      }).then((rows) => rows.map((row) => row.title)),
+    ).resolves.toEqual(['カレーうどん', 'カレーライス']);
   });
 });
 

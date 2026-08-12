@@ -8,6 +8,7 @@ import { createShoppingItemStore } from '~/db/shopping-item-store';
 
 import { requireUser } from './auth.server';
 import { normalizedRecipeInputSchema } from './recipe-input';
+import { recipeSearchCriteriaSchema } from './recipe-search';
 import {
   RecipeNotFoundError,
   addIngredientsToShoppingList,
@@ -50,14 +51,14 @@ const addIngredientsInputSchema = z.object({
   ingredientIndexes: z.array(z.int().nonnegative()).min(1),
 });
 
-/** 一覧（ホーム）に出す自分のレシピを取得する */
-export const fetchRecipeSummaries = createServerFn({ method: 'GET' }).handler(
-  async () => {
+/** 一覧（ホーム）に出す自分のレシピを、絞り込み条件付きで取得する */
+export const fetchRecipeSummaries = createServerFn({ method: 'GET' })
+  .inputValidator(recipeSearchCriteriaSchema)
+  .handler(async ({ data }) => {
     const user = await requireUser();
 
-    return listRecipeSummaries(createRecipeStore(getDatabase()), user.id);
-  },
-);
+    return listRecipeSummaries(createRecipeStore(getDatabase()), user.id, data);
+  });
 
 /** レシピを新規作成する */
 export const createRecipe = createServerFn({ method: 'POST' })
