@@ -1,5 +1,7 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { NotebookPen } from 'lucide-react';
+import { Link, createFileRoute } from '@tanstack/react-router';
+import { NotebookPen, Plus } from 'lucide-react';
+
+import { Button } from '~/components/ui/button';
 
 /**
  * レシピ一覧のプレースホルダー。
@@ -28,6 +30,11 @@ const Home = () => {
           <br />
           入り口は雑でいい。あとから見つかればいい。
         </p>
+        {/* 一覧と新規作成ボタンの本実装までの暫定の入り口 */}
+        <Button render={<Link to="/recipes/new" />} size="lg">
+          <Plus />
+          レシピを追加
+        </Button>
       </div>
     </section>
   );
