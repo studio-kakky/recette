@@ -1,15 +1,28 @@
-import { ArrowDown, ArrowUp, LoaderCircle, Plus, Trash2 } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ImagePlus,
+  LoaderCircle,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import { useId, useState } from 'react';
-import type { FormEvent, ReactNode } from 'react';
+import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 
-import { Button } from '~/components/ui/button';
+import { Button, buttonVariants } from '~/components/ui/button';
 import { Input } from '~/components/ui/input';
 import { Label } from '~/components/ui/label';
 import { Textarea } from '~/components/ui/textarea';
 import { moveItem } from '~/lib/array';
-import { recipeInputSchema } from '~/lib/recipe-input';
+import { IMAGE_ACCEPT_ATTRIBUTE } from '~/lib/image-input';
+import { toImageUrl } from '~/lib/image-key';
+import { uploadImage } from '~/lib/image-upload';
+import { RECIPE_PHOTO_LIMIT, recipeInputSchema } from '~/lib/recipe-input';
 import type { RecipeInput } from '~/lib/recipe-input';
 import type { RecipeFormValues } from '~/lib/recipe-service';
+import { cn } from '~/lib/utils';
 
 /**
  * レシピの作成・編集フォーム（写真以外の全フィールド）。
@@ -24,10 +37,14 @@ import type { RecipeFormValues } from '~/lib/recipe-service';
 type RowId = { readonly id: string };
 type IngredientRow = RowId & { readonly name: string; readonly amount: string };
 type StepRow = RowId & { readonly body: string };
+/** 写真は選んだ時点で R2 に保存済み。ここで持つのは実体のキーだけ */
+type PhotoRow = RowId & { readonly storageKey: string };
 
 type FieldErrors = {
   readonly title?: string;
   readonly url?: string;
+  /** 写真の添付に失敗したときの案内 */
+  readonly photos?: string;
   /** フィールドに紐づかないエラー（保存失敗など） */
   readonly form?: string;
 };
@@ -51,6 +68,7 @@ export const EMPTY_RECIPE_FORM_VALUES: RecipeFormValues = {
   ingredients: [],
   steps: [],
   tagNames: [],
+  photos: [],
 };
 
 const createIngredientRow = (
@@ -60,6 +78,11 @@ const createIngredientRow = (
 const createStepRow = (values: { body: string } = { body: '' }): StepRow => ({
   id: crypto.randomUUID(),
   ...values,
+});
+
+const createPhotoRow = (storageKey: string): PhotoRow => ({
+  id: crypto.randomUUID(),
+  storageKey,
 });
 
 /** 空でも 1 行は見せておく（いきなり「行を追加」を押させない） */
@@ -86,11 +109,16 @@ const Section = ({
   </section>
 );
 
-/** 行の並べ替え・削除ボタン */
+/**
+ * 行の並べ替え・削除ボタン。
+ *
+ * 縦に積む材料・手順は上下の矢印、横に並べる写真は左右の矢印で示す。
+ */
 const RowActions = ({
   label,
   isFirst,
   isLast,
+  orientation = 'vertical',
   onMoveUp,
   onMoveDown,
   onRemove,
@@ -98,42 +126,49 @@ const RowActions = ({
   readonly label: string;
   readonly isFirst: boolean;
   readonly isLast: boolean;
+  readonly orientation?: 'vertical' | 'horizontal';
   readonly onMoveUp: () => void;
   readonly onMoveDown: () => void;
   readonly onRemove: () => void;
-}) => (
-  <div className="flex justify-end gap-1">
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-sm"
-      aria-label={`${label}を上へ移動`}
-      disabled={isFirst}
-      onClick={onMoveUp}
-    >
-      <ArrowUp />
-    </Button>
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-sm"
-      aria-label={`${label}を下へ移動`}
-      disabled={isLast}
-      onClick={onMoveDown}
-    >
-      <ArrowDown />
-    </Button>
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-sm"
-      aria-label={`${label}を削除`}
-      onClick={onRemove}
-    >
-      <Trash2 />
-    </Button>
-  </div>
-);
+}) => {
+  const isVertical = orientation === 'vertical';
+  const MoveUpIcon = isVertical ? ArrowUp : ArrowLeft;
+  const MoveDownIcon = isVertical ? ArrowDown : ArrowRight;
+
+  return (
+    <div className="flex justify-end gap-1">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label={`${label}を${isVertical ? '上' : '前'}へ移動`}
+        disabled={isFirst}
+        onClick={onMoveUp}
+      >
+        <MoveUpIcon />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label={`${label}を${isVertical ? '下' : '後ろ'}へ移動`}
+        disabled={isLast}
+        onClick={onMoveDown}
+      >
+        <MoveDownIcon />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label={`${label}を削除`}
+        onClick={onRemove}
+      >
+        <Trash2 />
+      </Button>
+    </div>
+  );
+};
 
 export const RecipeForm = ({
   initialValues,
@@ -148,6 +183,7 @@ export const RecipeForm = ({
   const urlId = `${fieldId}-url`;
   const memoId = `${fieldId}-memo`;
   const tagDraftId = `${fieldId}-tag`;
+  const photoInputId = `${fieldId}-photo`;
 
   const [title, setTitle] = useState(initialValues.title);
   const [url, setUrl] = useState(initialValues.url);
@@ -164,12 +200,16 @@ export const RecipeForm = ({
       createStepRow,
     ),
   );
+  const [photoRows, setPhotoRows] = useState<PhotoRow[]>(() =>
+    initialValues.photos.map((photo) => createPhotoRow(photo.storageKey)),
+  );
   const [selectedTags, setSelectedTags] = useState<string[]>([
     ...initialValues.tagNames,
   ]);
   const [tagDraft, setTagDraft] = useState('');
   const [errors, setErrors] = useState<FieldErrors>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   // 既存タグと、この場で足したタグをまとめて選択肢にする
   const tagChoices = [...new Set([...tagOptions, ...selectedTags])].sort(
@@ -202,6 +242,57 @@ export const RecipeForm = ({
       ),
     );
 
+  /**
+   * 選ばれた画像を縮小してアップロードし、末尾に足す。
+   *
+   * レシピの保存を待たずにここで R2 へ入れてしまう（フォームでは実体の URL を
+   * 見ながら並べ替えたいため）。
+   */
+  const addPhotos = async (files: readonly File[]) => {
+    const room = RECIPE_PHOTO_LIMIT - photoRows.length;
+
+    if (room <= 0) {
+      setErrors((current) => ({
+        ...current,
+        photos: `写真は ${RECIPE_PHOTO_LIMIT} 枚まで添付できます。`,
+      }));
+
+      return;
+    }
+
+    setErrors((current) => ({ ...current, photos: undefined }));
+    setIsUploading(true);
+
+    try {
+      const storageKeys = await Promise.all(
+        files.slice(0, room).map((file) => uploadImage(file)),
+      );
+
+      setPhotoRows((rows) => [...rows, ...storageKeys.map(createPhotoRow)]);
+    } catch (error) {
+      setErrors((current) => ({
+        ...current,
+        photos:
+          error instanceof Error
+            ? error.message
+            : '写真を保存できませんでした。もう一度お試しください。',
+      }));
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handlePhotosSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = [...(event.target.files ?? [])];
+
+    // 同じファイルを選び直せるよう、読み取ったら入力を空に戻す
+    event.target.value = '';
+
+    if (files.length > 0) {
+      await addPhotos(files);
+    }
+  };
+
   const toggleTag = (name: string) =>
     setSelectedTags((names) =>
       names.includes(name)
@@ -232,6 +323,7 @@ export const RecipeForm = ({
       ingredients: ingredientRows.map(({ name, amount }) => ({ name, amount })),
       steps: stepRows.map(({ body }) => ({ body })),
       tagNames: selectedTags,
+      photos: photoRows.map(({ storageKey }) => ({ storageKey })),
     });
 
     if (!parsed.success) {
@@ -432,6 +524,81 @@ export const RecipeForm = ({
         </Button>
       </Section>
 
+      <Section
+        title="写真"
+        description="本のページやスクショを添付できます。送信前に自動で縮小します。"
+      >
+        {photoRows.length > 0 && (
+          <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {photoRows.map((row, index) => (
+              <li
+                key={row.id}
+                className="border-border bg-card flex flex-col gap-2 rounded-xl border p-2"
+              >
+                <img
+                  src={toImageUrl(row.storageKey)}
+                  alt={`${index + 1} 枚目の写真`}
+                  loading="lazy"
+                  className="bg-muted aspect-square w-full rounded-lg object-cover"
+                />
+                <RowActions
+                  label={`${index + 1} 枚目の写真`}
+                  isFirst={index === 0}
+                  isLast={index === photoRows.length - 1}
+                  orientation="horizontal"
+                  onMoveUp={() =>
+                    setPhotoRows((rows) => moveItem(rows, index, 'up'))
+                  }
+                  onMoveDown={() =>
+                    setPhotoRows((rows) => moveItem(rows, index, 'down'))
+                  }
+                  onRemove={() =>
+                    setPhotoRows((rows) =>
+                      rows.filter((photo) => photo.id !== row.id),
+                    )
+                  }
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/*
+          見た目はボタンだが、実体は file 入力。入力自体は sr-only で残してあるので
+          キーボードでもフォーカスして開ける。
+        */}
+        <Label
+          htmlFor={photoInputId}
+          className={cn(
+            buttonVariants({ variant: 'outline', size: 'lg' }),
+            'w-fit cursor-pointer',
+            (isUploading || photoRows.length >= RECIPE_PHOTO_LIMIT) &&
+              'pointer-events-none opacity-50',
+          )}
+        >
+          {isUploading ? (
+            <LoaderCircle className="animate-spin" />
+          ) : (
+            <ImagePlus />
+          )}
+          {isUploading ? 'アップロードしています…' : '写真を追加'}
+        </Label>
+        <input
+          id={photoInputId}
+          type="file"
+          accept={IMAGE_ACCEPT_ATTRIBUTE}
+          multiple
+          className="sr-only"
+          disabled={isUploading || photoRows.length >= RECIPE_PHOTO_LIMIT}
+          onChange={(event) => void handlePhotosSelected(event)}
+        />
+        {errors.photos !== undefined && (
+          <p role="alert" className="text-destructive text-xs">
+            {errors.photos}
+          </p>
+        )}
+      </Section>
+
       <Section title="タグ" description="タップで付け外しできます。">
         {tagChoices.length > 0 && (
           <ul className="flex flex-wrap gap-2">
@@ -508,7 +675,13 @@ export const RecipeForm = ({
 
       {/* 画面下端は共通シェルのタブバーが占めるので、操作ボタンは本文の末尾に置く */}
       <div className="border-border flex gap-3 border-t pt-5">
-        <Button type="submit" size="lg" className="flex-1" disabled={isSaving}>
+        {/* アップロード中の写真を取りこぼさないよう、終わるまでは保存させない */}
+        <Button
+          type="submit"
+          size="lg"
+          className="flex-1"
+          disabled={isSaving || isUploading}
+        >
           {isSaving && <LoaderCircle className="animate-spin" />}
           {isSaving ? '保存しています…' : submitLabel}
         </Button>

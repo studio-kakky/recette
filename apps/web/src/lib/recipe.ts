@@ -3,10 +3,12 @@ import { createServerFn } from '@tanstack/react-start';
 import * as z from 'zod';
 
 import { getDatabase } from '~/db/client';
+import { getImageStore } from '~/db/image-store';
 import { createRecipeStore } from '~/db/recipe-store';
 import { createShoppingItemStore } from '~/db/shopping-item-store';
 
 import { requireUser } from './auth.server';
+import { ImageAccessDeniedError } from './image-service';
 import { normalizedRecipeInputSchema } from './recipe-input';
 import { recipeSearchCriteriaSchema } from './recipe-search';
 import {
@@ -29,9 +31,17 @@ import {
  * サーバー専用モジュールを参照しないこと。
  */
 
-/** 見つからない / 他人のレシピは、存在を伏せて 404 として返す */
+/**
+ * 見つからない / 他人のレシピは、存在を伏せて 404 として返す。
+ *
+ * 他人の画像キーを添えて保存しようとした場合（改ざんされたリクエスト）も、
+ * 同じく「無い」として扱う。
+ */
 const toNotFound = (error: unknown): never => {
-  if (error instanceof RecipeNotFoundError) {
+  if (
+    error instanceof RecipeNotFoundError ||
+    error instanceof ImageAccessDeniedError
+  ) {
     throw notFound();
   }
 
@@ -69,7 +79,7 @@ export const createRecipe = createServerFn({ method: 'POST' })
       createRecipeStore(getDatabase()),
       user.id,
       data,
-    );
+    ).catch(toNotFound);
 
     return { recipeId };
   });
@@ -82,6 +92,7 @@ export const updateRecipe = createServerFn({ method: 'POST' })
 
     await editRecipe(
       createRecipeStore(getDatabase()),
+      getImageStore(),
       user.id,
       data.recipeId,
       data.recipe,
@@ -98,6 +109,7 @@ export const deleteRecipe = createServerFn({ method: 'POST' })
 
     await removeRecipe(
       createRecipeStore(getDatabase()),
+      getImageStore(),
       user.id,
       data.recipeId,
     ).catch(toNotFound);

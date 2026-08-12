@@ -10,6 +10,7 @@ import { useCallback } from 'react';
 
 import { RecipeSearchPanel } from '~/components/recipe-search-panel';
 import { Button } from '~/components/ui/button';
+import { toImageUrl } from '~/lib/image-key';
 import { fetchRecipeSummaries, fetchTagNames } from '~/lib/recipe';
 import {
   CLEARED_RECIPE_SEARCH,
@@ -37,39 +38,51 @@ const RecipeCard = ({ recipe }: { recipe: RecipeSummary }) => (
     <Link
       to="/recipes/$recipeId"
       params={{ recipeId: recipe.id }}
-      className="bg-card border-border hover:bg-accent/40 focus-visible:ring-ring/50 flex flex-col gap-2 rounded-2xl border p-4 transition-colors outline-none focus-visible:ring-3"
+      className="bg-card border-border hover:bg-accent/40 focus-visible:ring-ring/50 flex gap-3 rounded-2xl border p-4 transition-colors outline-none focus-visible:ring-3"
     >
-      <h2 className="font-heading leading-snug font-bold tracking-tight text-pretty">
-        {recipe.title}
-      </h2>
-
-      {recipe.tagNames.length > 0 && (
-        <ul className="flex flex-wrap gap-1.5">
-          {recipe.tagNames.map((name) => (
-            <li
-              key={name}
-              className="bg-accent text-accent-foreground rounded-full px-2 py-0.5 text-xs"
-            >
-              {name}
-            </li>
-          ))}
-        </ul>
+      {/* 隣にタイトルがあるので、サムネイル自体は読み上げ対象にしない */}
+      {recipe.photoStorageKey !== null && (
+        <img
+          src={toImageUrl(recipe.photoStorageKey)}
+          alt=""
+          loading="lazy"
+          className="border-border bg-muted size-16 shrink-0 rounded-xl border object-cover"
+        />
       )}
 
-      <p className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-        <span className="flex items-center gap-1">
-          <UtensilsCrossed className="size-3.5" aria-hidden="true" />
-          {recipe.cookCount === 0
-            ? 'まだ作っていない'
-            : `${recipe.cookCount} 回作った`}
-        </span>
-        {recipe.hasUrl && (
-          <span className="flex items-center gap-1">
-            <Link2 className="size-3.5" aria-hidden="true" />
-            リンクあり
-          </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <h2 className="font-heading leading-snug font-bold tracking-tight text-pretty">
+          {recipe.title}
+        </h2>
+
+        {recipe.tagNames.length > 0 && (
+          <ul className="flex flex-wrap gap-1.5">
+            {recipe.tagNames.map((name) => (
+              <li
+                key={name}
+                className="bg-accent text-accent-foreground rounded-full px-2 py-0.5 text-xs"
+              >
+                {name}
+              </li>
+            ))}
+          </ul>
         )}
-      </p>
+
+        <p className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          <span className="flex items-center gap-1">
+            <UtensilsCrossed className="size-3.5" aria-hidden="true" />
+            {recipe.cookCount === 0
+              ? 'まだ作っていない'
+              : `${recipe.cookCount} 回作った`}
+          </span>
+          {recipe.hasUrl && (
+            <span className="flex items-center gap-1">
+              <Link2 className="size-3.5" aria-hidden="true" />
+              リンクあり
+            </span>
+          )}
+        </p>
+      </div>
     </Link>
   </li>
 );

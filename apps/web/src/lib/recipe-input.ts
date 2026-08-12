@@ -19,7 +19,12 @@ const LIMIT = {
   /** 材料・手順の行数 */
   rows: 200,
   tags: 30,
+  /** 写真のストレージキー（`users/<userId>/<uuid>`） */
+  storageKey: 200,
 } as const;
+
+/** 1 レシピに添付できる写真の枚数。無料枠での運用なので控えめにする */
+export const RECIPE_PHOTO_LIMIT = 20;
 
 /** http(s) の URL だけを通す。OGP 取得はしないので到達性までは見ない */
 const isHttpUrl = (value: string): boolean => /^https?:\/\/\S+$/.test(value);
@@ -58,6 +63,10 @@ export const recipeInputSchema = z.object({
     .array(z.object({ body: z.string().trim().max(LIMIT.stepBody) }))
     .max(LIMIT.rows),
   tagNames: z.array(z.string().trim().max(LIMIT.tagName)).max(LIMIT.tags),
+  // 実体は R2 にあり、ここで持つのはキーだけ。所有者の検証はユースケース側で行う
+  photos: z
+    .array(z.object({ storageKey: z.string().trim().max(LIMIT.storageKey) }))
+    .max(RECIPE_PHOTO_LIMIT),
 });
 
 /** フォームから受け取る生の入力値（トリム済み） */
@@ -78,6 +87,10 @@ export type NormalizedRecipe = {
     readonly order: number;
   }>;
   readonly tagNames: readonly string[];
+  readonly photos: ReadonlyArray<{
+    readonly storageKey: string;
+    readonly order: number;
+  }>;
 };
 
 /**
@@ -86,6 +99,7 @@ export type NormalizedRecipe = {
  * - 材料は名前が、手順は本文が空の行を落とす（フォームは常に空行を 1 行余らせるため）
  * - `order` は空行を詰めたあとの並び順。表示順はこの値の昇順で復元する
  * - タグ名は空を落として重複を除く（`tags` はユーザー内で name ユニーク）
+ * - 写真は同じキーの重複を落とす（同じ実体を 2 行持たせない）
  */
 export const normalizeRecipeInput = (input: RecipeInput): NormalizedRecipe => ({
   title: input.title,
@@ -102,6 +116,11 @@ export const normalizeRecipeInput = (input: RecipeInput): NormalizedRecipe => ({
     .filter((row) => row.body !== '')
     .map((row, index) => ({ body: row.body, order: index })),
   tagNames: [...new Set(input.tagNames.filter((name) => name !== ''))],
+  photos: [
+    ...new Set(
+      input.photos.map((row) => row.storageKey).filter((key) => key !== ''),
+    ),
+  ].map((storageKey, index) => ({ storageKey, order: index })),
 });
 
 /** Server Function の入力バリデータ。正規化までを一息に行う */

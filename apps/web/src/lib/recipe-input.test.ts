@@ -14,6 +14,7 @@ const input = (values: Partial<Record<string, unknown>> = {}) => ({
   ingredients: [],
   steps: [],
   tagNames: [],
+  photos: [],
   ...values,
 });
 
@@ -139,6 +140,26 @@ describe('normalizeRecipeInput', () => {
     expect(normalized.tagNames).toEqual(['和食', '作り置き']);
   });
 
+  it('写真は並び順に order を振り、同じキーの重複を捨てる', () => {
+    const normalized = normalizeRecipeInput(
+      recipeInputSchema.parse(
+        input({
+          photos: [
+            { storageKey: 'users/user-1/photo-a' },
+            { storageKey: 'users/user-1/photo-b' },
+            { storageKey: 'users/user-1/photo-a' },
+            { storageKey: '' },
+          ],
+        }),
+      ),
+    );
+
+    expect(normalized.photos).toEqual([
+      { storageKey: 'users/user-1/photo-a', order: 0 },
+      { storageKey: 'users/user-1/photo-b', order: 1 },
+    ]);
+  });
+
   it('メモ・URL の未入力は NULL にする', () => {
     const normalized = normalizeRecipeInput(
       recipeInputSchema.parse(input({ memo: '  ', url: '' })),
@@ -166,6 +187,7 @@ describe('normalizedRecipeInputSchema', () => {
       ingredients: [],
       steps: [{ body: '煮る', order: 0 }],
       tagNames: [],
+      photos: [],
     });
   });
 });
