@@ -118,9 +118,12 @@ const resolveTagIds = async (
 /**
  * レシピの操作者が持ち主であることを確かめる。
  * 見つからない / 他人のものなら `RecipeNotFoundError` を投げる。
+ *
+ * レシピ配下のもの（作った記録など）を扱うユースケースからも使う。
  */
-const requireOwnedRecipe = async (
-  store: RecipeStore,
+export const requireOwnedRecipe = async (
+  // 持ち主を見るだけなので、レシピ本体を引けるものなら何でもよい
+  store: Pick<RecipeStore, 'findRecipe'>,
   userId: string,
   recipeId: string,
 ) => {

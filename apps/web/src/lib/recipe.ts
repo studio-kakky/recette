@@ -1,4 +1,3 @@
-import { notFound } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import * as z from 'zod';
 
@@ -8,11 +7,10 @@ import { createRecipeStore } from '~/db/recipe-store';
 import { createShoppingItemStore } from '~/db/shopping-item-store';
 
 import { requireUser } from './auth.server';
-import { ImageAccessDeniedError } from './image-service';
+import { toNotFound } from './not-found';
 import { normalizedRecipeInputSchema } from './recipe-input';
 import { recipeSearchCriteriaSchema } from './recipe-search';
 import {
-  RecipeNotFoundError,
   addIngredientsToShoppingList,
   addRecipe,
   editRecipe,
@@ -30,23 +28,6 @@ import {
  * このファイルはクライアントのバンドルにも入るため、ハンドラの外で
  * サーバー専用モジュールを参照しないこと。
  */
-
-/**
- * 見つからない / 他人のレシピは、存在を伏せて 404 として返す。
- *
- * 他人の画像キーを添えて保存しようとした場合（改ざんされたリクエスト）も、
- * 同じく「無い」として扱う。
- */
-const toNotFound = (error: unknown): never => {
-  if (
-    error instanceof RecipeNotFoundError ||
-    error instanceof ImageAccessDeniedError
-  ) {
-    throw notFound();
-  }
-
-  throw error;
-};
 
 const recipeIdSchema = z.object({ recipeId: z.string().min(1) });
 
