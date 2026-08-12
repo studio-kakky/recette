@@ -13,6 +13,7 @@ import {
   editRecipe,
   getRecipeDetail,
   getRecipeForEdit,
+  listRecipeSummaries,
   removeRecipe,
 } from './recipe-service';
 
@@ -40,6 +41,15 @@ const updateRecipeInputSchema = z.object({
   recipeId: z.string().min(1),
   recipe: normalizedRecipeInputSchema,
 });
+
+/** 一覧（ホーム）に出す自分のレシピを取得する */
+export const fetchRecipeSummaries = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    const user = await requireUser();
+
+    return listRecipeSummaries(createRecipeStore(getDatabase()), user.id);
+  },
+);
 
 /** レシピを新規作成する */
 export const createRecipe = createServerFn({ method: 'POST' })

@@ -21,6 +21,23 @@ export class RecipeNotFoundError extends Error {
   }
 }
 
+/** 一覧のカード 1 枚に出す値 */
+export type RecipeSummary = {
+  readonly id: string;
+  readonly title: string;
+  /** タグ名（名前昇順） */
+  readonly tagNames: readonly string[];
+  /** 作った回数。一度も作っていなければ 0 */
+  readonly cookCount: number;
+  /** 参照元 URL を持つレシピか */
+  readonly hasUrl: boolean;
+  /**
+   * 先頭写真のキー。画像配信が未実装の間は表示しないが、
+   * 一覧の取得回数を増やさずに済むよう今のうちから運んでおく。
+   */
+  readonly photoStorageKey: string | null;
+};
+
 /** 編集フォームに流し込む値 */
 export type RecipeFormValues = {
   readonly title: string;
@@ -105,6 +122,51 @@ const requireOwnedRecipe = async (
   }
 
   return recipe;
+};
+
+/**
+ * 一覧（ホーム）に出す自分のレシピを、更新の新しい順に返す。
+ *
+ * タグ・作った回数・写真はレシピ 1 件ずつ引くと N+1 になるため、
+ * ユーザー単位でまとめて取ってから ID で突き合わせる（クエリ数はレシピ数に依らず一定）。
+ */
+export const listRecipeSummaries = async (
+  store: RecipeStore,
+  userId: string,
+): Promise<RecipeSummary[]> => {
+  const [recipes, tagRows, cookCountRows, photoRows] = await Promise.all([
+    store.listRecipes(userId),
+    store.listTagNamesByRecipe(userId),
+    store.countCookLogsByRecipe(userId),
+    store.listFirstPhotoKeysByRecipe(userId),
+  ]);
+
+  const tagNamesByRecipe = tagRows.reduce(
+    (acc, row) =>
+      acc.set(row.recipeId, [...(acc.get(row.recipeId) ?? []), row.name]),
+    new Map<string, string[]>(),
+  );
+  const cookCountByRecipe = new Map(
+    cookCountRows.map((row) => [row.recipeId, row.cookCount]),
+  );
+  const photoKeyByRecipe = new Map(
+    photoRows.map((row) => [row.recipeId, row.storageKey]),
+  );
+
+  return (
+    [...recipes]
+      // 「最近さわったものが上」。store も同じ順で返すが、並び順は一覧の仕様なのでここで確定させる
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+      .map((recipe) => ({
+        id: recipe.id,
+        title: recipe.title,
+        tagNames: tagNamesByRecipe.get(recipe.id) ?? [],
+        // 作った記録が 1 件も無いレシピは集計行が返らないので 0 に倒す
+        cookCount: cookCountByRecipe.get(recipe.id) ?? 0,
+        hasUrl: recipe.url !== null,
+        photoStorageKey: photoKeyByRecipe.get(recipe.id) ?? null,
+      }))
+  );
 };
 
 /** レシピを新規作成し、作成された ID を返す */

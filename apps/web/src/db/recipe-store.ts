@@ -1,7 +1,15 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, count, desc, eq, min } from 'drizzle-orm';
 
 import type { Database } from './client';
-import { ingredients, recipeTags, recipes, steps, tags } from './schema';
+import {
+  cookLogs,
+  ingredients,
+  photos,
+  recipeTags,
+  recipes,
+  steps,
+  tags,
+} from './schema';
 
 /**
  * レシピの読み書きを行う永続化層。
@@ -32,6 +40,33 @@ export type RecipeStore = {
   findRecipeTagNames(recipeId: string): Promise<string[]>;
   /** ユーザーが持つタグの一覧（名前昇順） */
   listTags(userId: string): Promise<Array<{ id: string; name: string }>>;
+  /** ユーザーのレシピ本体（一覧のカードに出す分だけ） */
+  listRecipes(userId: string): Promise<
+    Array<{
+      id: string;
+      title: string;
+      url: string | null;
+      updatedAt: Date;
+    }>
+  >;
+  /**
+   * ユーザーのレシピに付いているタグ名を、レシピをまたいで一度に引く。
+   * 一覧で 1 レシピずつ引くと N+1 になるため、まとめて取ってから割り当てる。
+   */
+  listTagNamesByRecipe(
+    userId: string,
+  ): Promise<Array<{ recipeId: string; name: string }>>;
+  /**
+   * ユーザーのレシピごとの「作った回数」。
+   * 0 回のレシピは行自体が返らない（呼び出し側で 0 として扱う）。
+   */
+  countCookLogsByRecipe(
+    userId: string,
+  ): Promise<Array<{ recipeId: string; cookCount: number }>>;
+  /** ユーザーのレシピごとの先頭写真（`order` が最小のもの）のキー */
+  listFirstPhotoKeysByRecipe(
+    userId: string,
+  ): Promise<Array<{ recipeId: string; storageKey: string }>>;
   /** レシピ本体を作成し、採番した ID を返す */
   insertRecipe(recipe: {
     userId: string;
@@ -120,6 +155,57 @@ export const createRecipeStore = (db: Database): RecipeStore => ({
       .where(eq(tags.userId, userId))
       .orderBy(asc(tags.name))
       .all(),
+
+  listRecipes: (userId) =>
+    db
+      .select({
+        id: recipes.id,
+        title: recipes.title,
+        url: recipes.url,
+        updatedAt: recipes.updatedAt,
+      })
+      .from(recipes)
+      .where(eq(recipes.userId, userId))
+      // `recipes_user_id_updated_at_idx` に乗る並び。最終的な並びはユースケース側で決める
+      .orderBy(desc(recipes.updatedAt))
+      .all(),
+
+  listTagNamesByRecipe: (userId) =>
+    db
+      .select({ recipeId: recipeTags.recipeId, name: tags.name })
+      .from(recipeTags)
+      .innerJoin(tags, eq(tags.id, recipeTags.tagId))
+      .innerJoin(recipes, eq(recipes.id, recipeTags.recipeId))
+      .where(eq(recipes.userId, userId))
+      .orderBy(asc(tags.name))
+      .all(),
+
+  countCookLogsByRecipe: (userId) =>
+    db
+      .select({ recipeId: cookLogs.recipeId, cookCount: count() })
+      .from(cookLogs)
+      .innerJoin(recipes, eq(recipes.id, cookLogs.recipeId))
+      .where(eq(recipes.userId, userId))
+      .groupBy(cookLogs.recipeId)
+      .all(),
+
+  listFirstPhotoKeysByRecipe: async (userId) => {
+    // SQLite では min() を使った集約に限り、同じ行の他カラム（storage_key）を
+    // そのまま取り出せる。つまり「order が最小の行の storageKey」が 1 クエリで得られる
+    const rows = await db
+      .select({
+        recipeId: photos.recipeId,
+        storageKey: photos.storageKey,
+        order: min(photos.order),
+      })
+      .from(photos)
+      .innerJoin(recipes, eq(recipes.id, photos.recipeId))
+      .where(eq(recipes.userId, userId))
+      .groupBy(photos.recipeId)
+      .all();
+
+    return rows.map(({ recipeId, storageKey }) => ({ recipeId, storageKey }));
+  },
 
   insertRecipe: async (recipe) => {
     const inserted = await db
