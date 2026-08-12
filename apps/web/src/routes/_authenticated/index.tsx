@@ -1,8 +1,24 @@
 import { Link, createFileRoute } from '@tanstack/react-router';
-import { Link2, NotebookPen, Plus, UtensilsCrossed } from 'lucide-react';
+import {
+  Link2,
+  NotebookPen,
+  Plus,
+  SearchX,
+  UtensilsCrossed,
+} from 'lucide-react';
+import { useCallback } from 'react';
 
+import { RecipeSearchPanel } from '~/components/recipe-search-panel';
 import { Button } from '~/components/ui/button';
-import { fetchRecipeSummaries } from '~/lib/recipe';
+import { fetchRecipeSummaries, fetchTagNames } from '~/lib/recipe';
+import {
+  CLEARED_RECIPE_SEARCH,
+  isRecipeSearchActive,
+  normalizeRecipeSearch,
+  recipeSearchSchema,
+  withKeyword,
+  withToggledTagName,
+} from '~/lib/recipe-search';
 import type { RecipeSummary } from '~/lib/recipe-service';
 
 /**
@@ -10,6 +26,9 @@ import type { RecipeSummary } from '~/lib/recipe-service';
  *
  * ヘッダー・ナビ・ログアウトは共通シェル（`_authenticated.tsx`）が持つので、
  * ここは本文だけを描く。
+ *
+ * 絞り込み条件は URL のクエリ（`?q=` `?tags=`）に載せる。リロードしても
+ * 戻ってきても同じ結果になり、条件付きの一覧をそのまま共有・ブックマークもできる。
  */
 
 /** カード 1 枚。片手で押せるよう、カード全体をリンクにする */
@@ -71,8 +90,57 @@ const EmptyState = () => (
   </div>
 );
 
+/** 絞り込んだ結果が 0 件のとき。条件を外す導線をその場に置く */
+const NoMatchState = ({ onClear }: { readonly onClear: () => void }) => (
+  <div className="bg-card border-border flex flex-col items-center gap-3 rounded-2xl border px-6 py-12 text-center">
+    <SearchX className="text-primary size-8" aria-hidden="true" />
+    <p className="text-muted-foreground text-sm leading-relaxed text-pretty">
+      条件に合うレシピが見つかりませんでした。
+      <br />
+      言葉を変えるか、条件を外してみてください。
+    </p>
+    <Button variant="outline" size="lg" onClick={onClear}>
+      条件をクリア
+    </Button>
+  </div>
+);
+
 const Home = () => {
-  const recipes = Route.useLoaderData();
+  const { recipes, tagOptions } = Route.useLoaderData();
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+
+  const criteria = normalizeRecipeSearch(search);
+  const isSearching = isRecipeSearchActive(criteria);
+
+  // 絞り込みは履歴に積まない（戻るたびに 1 文字ずつ遡らせない）。
+  // 条件は現在のクエリから作り直すので、ハンドラは navigate だけに依存する
+  const handleKeywordChange = useCallback(
+    (keyword: string) => {
+      void navigate({
+        search: (previous) => withKeyword(previous, keyword),
+        replace: true,
+      });
+    },
+    [navigate],
+  );
+
+  const handleTagToggle = useCallback(
+    (name: string) => {
+      void navigate({
+        search: (previous) => withToggledTagName(previous, name),
+        replace: true,
+      });
+    },
+    [navigate],
+  );
+
+  const handleClear = useCallback(() => {
+    void navigate({ search: CLEARED_RECIPE_SEARCH, replace: true });
+  }, [navigate]);
+
+  // レシピもタグも無い＝まだ何も放り込んでいない人には、検索窓を出さない
+  const canSearch = isSearching || recipes.length > 0 || tagOptions.length > 0;
 
   return (
     <section className="flex flex-col gap-4">
@@ -85,8 +153,22 @@ const Home = () => {
         )}
       </div>
 
+      {canSearch && (
+        <RecipeSearchPanel
+          keyword={criteria.keyword ?? ''}
+          selectedTagNames={criteria.tagNames}
+          tagOptions={tagOptions}
+          onKeywordChange={handleKeywordChange}
+          onTagToggle={handleTagToggle}
+        />
+      )}
+
       {recipes.length === 0 ? (
-        <EmptyState />
+        isSearching ? (
+          <NoMatchState onClear={handleClear} />
+        ) : (
+          <EmptyState />
+        )
       ) : (
         // 最後のカードが FAB に隠れないよう、リストの下に余白を足す
         <ul className="flex flex-col gap-3 pb-16">
@@ -119,6 +201,17 @@ const Home = () => {
 };
 
 export const Route = createFileRoute('/_authenticated/')({
-  loader: () => fetchRecipeSummaries(),
+  validateSearch: recipeSearchSchema,
+  // 条件が変わったらローダーを引き直す（正規化してから渡すので、表記ゆれで再取得しない）
+  loaderDeps: ({ search }) => normalizeRecipeSearch(search),
+  loader: async ({ deps }) => {
+    const [recipes, tagOptions] = await Promise.all([
+      fetchRecipeSummaries({ data: deps }),
+      // チップに出す候補は絞り込み結果に依らない（条件を足し引きできるようにする）
+      fetchTagNames(),
+    ]);
+
+    return { recipes, tagOptions };
+  },
   component: Home,
 });

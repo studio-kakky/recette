@@ -3,6 +3,7 @@ import type { ShoppingItemStore } from '~/db/shopping-item-store';
 
 import { formatIngredientRowLabel } from './ingredient';
 import type { NormalizedRecipe } from './recipe-input';
+import type { RecipeSearchCriteria } from './recipe-search';
 import { truncateShoppingItemLabel } from './shopping-item';
 
 /**
@@ -130,15 +131,20 @@ const requireOwnedRecipe = async (
 /**
  * 一覧（ホーム）に出す自分のレシピを、更新の新しい順に返す。
  *
+ * `criteria` で絞り込む（条件が空なら全件）。絞り込みは store 側の SQL に任せ、
+ * ここでは並びとカードに出す値の組み立てだけを行う。
+ *
  * タグ・作った回数・写真はレシピ 1 件ずつ引くと N+1 になるため、
  * ユーザー単位でまとめて取ってから ID で突き合わせる（クエリ数はレシピ数に依らず一定）。
+ * 絞り込みで消えたレシピの分は突き合わせで捨てられるので、条件を渡す必要はない。
  */
 export const listRecipeSummaries = async (
   store: RecipeStore,
   userId: string,
+  criteria: RecipeSearchCriteria,
 ): Promise<RecipeSummary[]> => {
   const [recipes, tagRows, cookCountRows, photoRows] = await Promise.all([
-    store.listRecipes(userId),
+    store.listRecipes(userId, criteria),
     store.listTagNamesByRecipe(userId),
     store.countCookLogsByRecipe(userId),
     store.listFirstPhotoKeysByRecipe(userId),
