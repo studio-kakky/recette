@@ -4,19 +4,15 @@ import {
   useNavigate,
   useRouter,
 } from '@tanstack/react-router';
-import {
-  ExternalLink,
-  LoaderCircle,
-  Pencil,
-  Trash2,
-  UtensilsCrossed,
-} from 'lucide-react';
+import { ExternalLink, LoaderCircle, Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
+import { RecipeCookLogs } from '~/components/recipe-cook-logs';
 import { RecipeIngredients } from '~/components/recipe-ingredients';
 import { RecipeNotFound } from '~/components/recipe-not-found';
 import { Button } from '~/components/ui/button';
+import { fetchCookLogs } from '~/lib/cook-log';
 import { toImageUrl } from '~/lib/image-key';
 import { deleteRecipe, fetchRecipeDetail } from '~/lib/recipe';
 
@@ -40,26 +36,8 @@ const Section = ({
   </section>
 );
 
-/** 後続 issue（#27 写真 / #28 作った記録）で中身が入る節 */
-const ComingSoonSection = ({
-  title,
-  icon,
-  description,
-}: {
-  readonly title: string;
-  readonly icon: ReactNode;
-  readonly description: string;
-}) => (
-  <Section title={title}>
-    <p className="border-border bg-card text-muted-foreground flex items-center gap-2 rounded-xl border border-dashed px-3 py-4 text-xs">
-      {icon}
-      {description}
-    </p>
-  </Section>
-);
-
 const RecipeDetail = () => {
-  const recipe = Route.useLoaderData();
+  const { recipe, cookLogs } = Route.useLoaderData();
   const { recipeId } = Route.useParams();
   const router = useRouter();
   const navigate = useNavigate();
@@ -185,13 +163,7 @@ const RecipeDetail = () => {
         </Section>
       )}
 
-      <ComingSoonSection
-        title="作った記録"
-        icon={
-          <UtensilsCrossed className="size-4 shrink-0" aria-hidden="true" />
-        }
-        description="作った日の記録はこれから対応します。"
-      />
+      <RecipeCookLogs recipeId={recipeId} cookLogs={cookLogs} />
 
       {error !== undefined && (
         <p
@@ -228,8 +200,15 @@ const RecipeDetail = () => {
 };
 
 export const Route = createFileRoute('/_authenticated/recipes/$recipeId/')({
-  loader: ({ params }) =>
-    fetchRecipeDetail({ data: { recipeId: params.recipeId } }),
+  // レシピ本体と作った記録は互いに依存しないので、まとめて取りに行く
+  loader: async ({ params }) => {
+    const [recipe, cookLogs] = await Promise.all([
+      fetchRecipeDetail({ data: { recipeId: params.recipeId } }),
+      fetchCookLogs({ data: { recipeId: params.recipeId } }),
+    ]);
+
+    return { recipe, cookLogs };
+  },
   component: RecipeDetail,
   notFoundComponent: RecipeNotFound,
 });
