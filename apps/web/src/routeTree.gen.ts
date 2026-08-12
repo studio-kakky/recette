@@ -13,7 +13,9 @@ import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as AuthenticatedShoppingListRouteImport } from './routes/_authenticated/shopping-list'
+import { Route as AuthenticatedRecipesNewRouteImport } from './routes/_authenticated/recipes/new'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as AuthenticatedRecipesRecipeIdEditRouteImport } from './routes/_authenticated/recipes/$recipeId.edit'
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: '/_authenticated',
@@ -35,23 +37,38 @@ const AuthenticatedShoppingListRoute =
     path: '/shopping-list',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedRecipesNewRoute = AuthenticatedRecipesNewRouteImport.update({
+  id: '/recipes/new',
+  path: '/recipes/new',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedRecipesRecipeIdEditRoute =
+  AuthenticatedRecipesRecipeIdEditRouteImport.update({
+    id: '/recipes/$recipeId/edit',
+    path: '/recipes/$recipeId/edit',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
   '/login': typeof LoginRoute
   '/shopping-list': typeof AuthenticatedShoppingListRoute
+  '/recipes/new': typeof AuthenticatedRecipesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/recipes/$recipeId/edit': typeof AuthenticatedRecipesRecipeIdEditRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/shopping-list': typeof AuthenticatedShoppingListRoute
   '/': typeof AuthenticatedIndexRoute
+  '/recipes/new': typeof AuthenticatedRecipesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/recipes/$recipeId/edit': typeof AuthenticatedRecipesRecipeIdEditRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -59,20 +76,36 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/_authenticated/shopping-list': typeof AuthenticatedShoppingListRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
+  '/_authenticated/recipes/new': typeof AuthenticatedRecipesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/_authenticated/recipes/$recipeId/edit': typeof AuthenticatedRecipesRecipeIdEditRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/shopping-list' | '/api/auth/$'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/shopping-list'
+    | '/recipes/new'
+    | '/api/auth/$'
+    | '/recipes/$recipeId/edit'
   fileRoutesByTo: FileRoutesByTo
-  to: '/login' | '/shopping-list' | '/' | '/api/auth/$'
+  to:
+    | '/login'
+    | '/shopping-list'
+    | '/'
+    | '/recipes/new'
+    | '/api/auth/$'
+    | '/recipes/$recipeId/edit'
   id:
     | '__root__'
     | '/_authenticated'
     | '/login'
     | '/_authenticated/shopping-list'
     | '/_authenticated/'
+    | '/_authenticated/recipes/new'
     | '/api/auth/$'
+    | '/_authenticated/recipes/$recipeId/edit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -111,6 +144,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedShoppingListRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/recipes/new': {
+      id: '/_authenticated/recipes/new'
+      path: '/recipes/new'
+      fullPath: '/recipes/new'
+      preLoaderRoute: typeof AuthenticatedRecipesNewRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -118,17 +158,28 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/recipes/$recipeId/edit': {
+      id: '/_authenticated/recipes/$recipeId/edit'
+      path: '/recipes/$recipeId/edit'
+      fullPath: '/recipes/$recipeId/edit'
+      preLoaderRoute: typeof AuthenticatedRecipesRecipeIdEditRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
   }
 }
 
 interface AuthenticatedRouteChildren {
   AuthenticatedShoppingListRoute: typeof AuthenticatedShoppingListRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
+  AuthenticatedRecipesNewRoute: typeof AuthenticatedRecipesNewRoute
+  AuthenticatedRecipesRecipeIdEditRoute: typeof AuthenticatedRecipesRecipeIdEditRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedShoppingListRoute: AuthenticatedShoppingListRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
+  AuthenticatedRecipesNewRoute: AuthenticatedRecipesNewRoute,
+  AuthenticatedRecipesRecipeIdEditRoute: AuthenticatedRecipesRecipeIdEditRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
