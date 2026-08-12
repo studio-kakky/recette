@@ -1,6 +1,8 @@
+import type { ImageStore } from '~/db/image-store';
 import type { RecipeStore } from '~/db/recipe-store';
 import type { ShoppingItemStore } from '~/db/shopping-item-store';
 
+import { requireOwnedImageKeys } from './image-service';
 import { formatIngredientRowLabel } from './ingredient';
 import type { NormalizedRecipe } from './recipe-input';
 import type { RecipeSearchCriteria } from './recipe-search';
@@ -9,8 +11,12 @@ import { truncateShoppingItemLabel } from './shopping-item';
 /**
  * レシピの作成・更新・取得・削除のユースケース。
  *
- * DB は `RecipeStore` 越しにしか触らないので、偽の store を渡せば認可も
- * 行の並びもユニットテストで確かめられる（D1 が要らない）。
+ * DB は `RecipeStore` 越しに、画像の実体は `ImageStore` 越しにしか触らないので、
+ * 偽の store を渡せば認可も行の並びもユニットテストで確かめられる
+ * （D1 も R2 も要らない）。
+ *
+ * 写真の行は FK のカスケードで消えるが、R2 のオブジェクトは消えないため、
+ * レシピを消すとき・写真を外したときにここから明示的に削除する。
  */
 
 /**
@@ -35,10 +41,7 @@ export type RecipeSummary = {
   readonly cookCount: number;
   /** 参照元 URL を持つレシピか */
   readonly hasUrl: boolean;
-  /**
-   * 先頭写真のキー。画像配信が未実装の間は表示しないが、
-   * 一覧の取得回数を増やさずに済むよう今のうちから運んでおく。
-   */
+  /** 先頭写真のキー。カードのサムネイルに使う。写真が無ければ `null` */
   readonly photoStorageKey: string | null;
 };
 
@@ -53,6 +56,7 @@ export type RecipeFormValues = {
   }>;
   readonly steps: ReadonlyArray<{ readonly body: string }>;
   readonly tagNames: readonly string[];
+  readonly photos: ReadonlyArray<{ readonly storageKey: string }>;
 };
 
 /**
@@ -71,6 +75,7 @@ export type RecipeDetail = {
   }>;
   readonly steps: ReadonlyArray<{ readonly body: string }>;
   readonly tagNames: readonly string[];
+  readonly photos: ReadonlyArray<{ readonly storageKey: string }>;
 };
 
 /**
@@ -184,6 +189,12 @@ export const addRecipe = async (
   userId: string,
   recipe: NormalizedRecipe,
 ): Promise<string> => {
+  // 他人の画像キーを自分のレシピに繋がせない（削除時に他人の実体を消してしまうため）
+  requireOwnedImageKeys(
+    userId,
+    recipe.photos.map((photo) => photo.storageKey),
+  );
+
   const recipeId = await store.insertRecipe({
     userId,
     title: recipe.title,
@@ -193,6 +204,7 @@ export const addRecipe = async (
 
   await store.replaceIngredients(recipeId, recipe.ingredients);
   await store.replaceSteps(recipeId, recipe.steps);
+  await store.replacePhotos(recipeId, recipe.photos);
   await store.replaceRecipeTags(
     recipeId,
     await resolveTagIds(store, userId, recipe.tagNames),
@@ -204,16 +216,24 @@ export const addRecipe = async (
 /**
  * 既存レシピを更新する。
  *
- * 材料・手順・タグ紐付けは delete → insert で丸ごと差し替える
+ * 材料・手順・写真・タグ紐付けは delete → insert で丸ごと差し替える
  * （D1 にインタラクティブなトランザクションが無いため、差分更新はしない）。
+ * 外された写真は R2 の実体も消す。
  */
 export const editRecipe = async (
   store: RecipeStore,
+  images: ImageStore,
   userId: string,
   recipeId: string,
   recipe: NormalizedRecipe,
 ): Promise<void> => {
   await requireOwnedRecipe(store, userId, recipeId);
+  requireOwnedImageKeys(
+    userId,
+    recipe.photos.map((photo) => photo.storageKey),
+  );
+
+  const previousPhotos = await store.findPhotos(recipeId);
 
   await store.updateRecipe(recipeId, {
     title: recipe.title,
@@ -222,9 +242,19 @@ export const editRecipe = async (
   });
   await store.replaceIngredients(recipeId, recipe.ingredients);
   await store.replaceSteps(recipeId, recipe.steps);
+  await store.replacePhotos(recipeId, recipe.photos);
   await store.replaceRecipeTags(
     recipeId,
     await resolveTagIds(store, userId, recipe.tagNames),
+  );
+
+  // DB から外れた写真は、そのままだと R2 に残り続けるので消す
+  const keptKeys = new Set(recipe.photos.map((photo) => photo.storageKey));
+
+  await images.deleteMany(
+    previousPhotos
+      .map((photo) => photo.storageKey)
+      .filter((key) => !keptKeys.has(key)),
   );
 };
 
@@ -236,10 +266,11 @@ export const getRecipeDetail = async (
 ): Promise<RecipeDetail> => {
   const recipe = await requireOwnedRecipe(store, userId, recipeId);
 
-  const [ingredients, steps, tagNames] = await Promise.all([
+  const [ingredients, steps, tagNames, photos] = await Promise.all([
     store.findIngredients(recipeId),
     store.findSteps(recipeId),
     store.findRecipeTagNames(recipeId),
+    store.findPhotos(recipeId),
   ]);
 
   return {
@@ -249,6 +280,7 @@ export const getRecipeDetail = async (
     ingredients,
     steps,
     tagNames,
+    photos,
   };
 };
 
@@ -271,6 +303,7 @@ export const getRecipeForEdit = async (
     })),
     steps: recipe.steps,
     tagNames: recipe.tagNames,
+    photos: recipe.photos,
   };
 };
 
@@ -310,13 +343,20 @@ export const addIngredientsToShoppingList = async (
   return rows.length;
 };
 
-/** レシピを削除する。配下の行は FK のカスケードでまとめて消える */
+/**
+ * レシピを削除する。配下の行は FK のカスケードでまとめて消えるが、
+ * R2 の写真だけはカスケードが効かないので、行が消える前にキーを控えて消す。
+ */
 export const removeRecipe = async (
   store: RecipeStore,
+  images: ImageStore,
   userId: string,
   recipeId: string,
 ): Promise<void> => {
   await requireOwnedRecipe(store, userId, recipeId);
 
+  const photos = await store.findPhotos(recipeId);
+
   await store.deleteRecipe(recipeId);
+  await images.deleteMany(photos.map((photo) => photo.storageKey));
 };

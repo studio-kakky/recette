@@ -5,7 +5,6 @@ import {
   useRouter,
 } from '@tanstack/react-router';
 import {
-  Camera,
   ExternalLink,
   LoaderCircle,
   Pencil,
@@ -18,6 +17,7 @@ import type { ReactNode } from 'react';
 import { RecipeIngredients } from '~/components/recipe-ingredients';
 import { RecipeNotFound } from '~/components/recipe-not-found';
 import { Button } from '~/components/ui/button';
+import { toImageUrl } from '~/lib/image-key';
 import { deleteRecipe, fetchRecipeDetail } from '~/lib/recipe';
 
 /**
@@ -157,11 +157,33 @@ const RecipeDetail = () => {
         </Section>
       )}
 
-      <ComingSoonSection
-        title="写真"
-        icon={<Camera className="size-4 shrink-0" aria-hidden="true" />}
-        description="写真の登録はこれから対応します。"
-      />
+      {recipe.photos.length > 0 && (
+        <Section title="写真">
+          {/*
+            本のページやスクショが多いので、切り抜かず元の比率のまま縦に並べる。
+            細かい字は拡大して読めるよう、タップで実体を開けるようにしておく。
+          */}
+          <ul className="flex flex-col gap-3">
+            {recipe.photos.map((photo, index) => (
+              <li key={photo.storageKey}>
+                <a
+                  href={toImageUrl(photo.storageKey)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="focus-visible:ring-ring/50 block rounded-xl outline-none focus-visible:ring-3"
+                >
+                  <img
+                    src={toImageUrl(photo.storageKey)}
+                    alt={`${recipe.title} の写真 ${index + 1}`}
+                    loading="lazy"
+                    className="border-border bg-muted w-full rounded-xl border"
+                  />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
 
       <ComingSoonSection
         title="作った記録"

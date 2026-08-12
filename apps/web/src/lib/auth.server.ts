@@ -68,6 +68,20 @@ export const getOptionalUser = async (): Promise<SessionUser | null> => {
 };
 
 /**
+ * リクエストのヘッダーからユーザーを取り出す。未ログインなら `null`。
+ *
+ * サーバールートのハンドラ（`~/routes/api/**`）向け。画面遷移ではないので
+ * `requireUser()` のようにリダイレクトはせず、呼び出し側で 401 を返す。
+ */
+export const getOptionalUserFromRequest = async (
+  request: Request,
+): Promise<SessionUser | null> => {
+  const session = await getAuth().api.getSession({ headers: request.headers });
+
+  return session?.user ?? null;
+};
+
+/**
  * ログインを必須にする。未ログインなら `/login` へリダイレクトする。
  *
  * すべての Server Function の先頭で呼び、返ってきた `user.id` でデータを絞ること

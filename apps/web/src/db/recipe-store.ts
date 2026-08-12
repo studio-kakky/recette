@@ -90,6 +90,8 @@ export type RecipeStore = {
   ): Promise<Array<{ name: string; amount: string | null }>>;
   /** 手順行（`order` 昇順） */
   findSteps(recipeId: string): Promise<Array<{ body: string }>>;
+  /** 写真行（`order` 昇順）。実体は R2 にあり、ここで持つのはキーだけ */
+  findPhotos(recipeId: string): Promise<Array<{ storageKey: string }>>;
   /** レシピに付いているタグ名 */
   findRecipeTagNames(recipeId: string): Promise<string[]>;
   /** ユーザーが持つタグの一覧（名前昇順） */
@@ -151,6 +153,11 @@ export type RecipeStore = {
     recipeId: string,
     rows: ReadonlyArray<{ body: string; order: number }>,
   ): Promise<void>;
+  /** 写真行を丸ごと差し替える。R2 の実体はユースケース側が別途始末する */
+  replacePhotos(
+    recipeId: string,
+    rows: ReadonlyArray<{ storageKey: string; order: number }>,
+  ): Promise<void>;
   /** タグを作成する。同名タグが既にあれば何もしない */
   insertTags(
     rows: ReadonlyArray<{ userId: string; name: string }>,
@@ -194,6 +201,14 @@ export const createRecipeStore = (db: Database): RecipeStore => ({
       .from(steps)
       .where(eq(steps.recipeId, recipeId))
       .orderBy(asc(steps.order))
+      .all(),
+
+  findPhotos: (recipeId) =>
+    db
+      .select({ storageKey: photos.storageKey })
+      .from(photos)
+      .where(eq(photos.recipeId, recipeId))
+      .orderBy(asc(photos.order))
       .all(),
 
   findRecipeTagNames: async (recipeId) => {
@@ -305,6 +320,14 @@ export const createRecipeStore = (db: Database): RecipeStore => ({
 
     if (rows.length > 0) {
       await db.insert(steps).values(rows.map((row) => ({ ...row, recipeId })));
+    }
+  },
+
+  replacePhotos: async (recipeId, rows) => {
+    await db.delete(photos).where(eq(photos.recipeId, recipeId));
+
+    if (rows.length > 0) {
+      await db.insert(photos).values(rows.map((row) => ({ ...row, recipeId })));
     }
   },
 

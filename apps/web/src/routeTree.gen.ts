@@ -15,6 +15,8 @@ import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedShoppingListRouteImport } from './routes/_authenticated/shopping-list'
 import { Route as AuthenticatedRecipesNewRouteImport } from './routes/_authenticated/recipes/new'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiImagesSplatRouteImport } from './routes/api/images/$'
+import { Route as ApiImagesUploadRouteImport } from './routes/api/images/upload'
 import { Route as AuthenticatedRecipesRecipeIdIndexRouteImport } from './routes/_authenticated/recipes/$recipeId.index'
 import { Route as AuthenticatedRecipesRecipeIdEditRouteImport } from './routes/_authenticated/recipes/$recipeId.edit'
 
@@ -48,6 +50,16 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiImagesSplatRoute = ApiImagesSplatRouteImport.update({
+  id: '/api/images/$',
+  path: '/api/images/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiImagesUploadRoute = ApiImagesUploadRouteImport.update({
+  id: '/api/images/upload',
+  path: '/api/images/upload',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedRecipesRecipeIdIndexRoute =
   AuthenticatedRecipesRecipeIdIndexRouteImport.update({
     id: '/recipes/$recipeId/',
@@ -67,6 +79,8 @@ export interface FileRoutesByFullPath {
   '/shopping-list': typeof AuthenticatedShoppingListRoute
   '/recipes/new': typeof AuthenticatedRecipesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/images/$': typeof ApiImagesSplatRoute
+  '/api/images/upload': typeof ApiImagesUploadRoute
   '/recipes/$recipeId/edit': typeof AuthenticatedRecipesRecipeIdEditRoute
   '/recipes/$recipeId/': typeof AuthenticatedRecipesRecipeIdIndexRoute
 }
@@ -76,6 +90,8 @@ export interface FileRoutesByTo {
   '/': typeof AuthenticatedIndexRoute
   '/recipes/new': typeof AuthenticatedRecipesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/images/$': typeof ApiImagesSplatRoute
+  '/api/images/upload': typeof ApiImagesUploadRoute
   '/recipes/$recipeId/edit': typeof AuthenticatedRecipesRecipeIdEditRoute
   '/recipes/$recipeId': typeof AuthenticatedRecipesRecipeIdIndexRoute
 }
@@ -87,6 +103,8 @@ export interface FileRoutesById {
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/recipes/new': typeof AuthenticatedRecipesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/images/$': typeof ApiImagesSplatRoute
+  '/api/images/upload': typeof ApiImagesUploadRoute
   '/_authenticated/recipes/$recipeId/edit': typeof AuthenticatedRecipesRecipeIdEditRoute
   '/_authenticated/recipes/$recipeId/': typeof AuthenticatedRecipesRecipeIdIndexRoute
 }
@@ -98,6 +116,8 @@ export interface FileRouteTypes {
     | '/shopping-list'
     | '/recipes/new'
     | '/api/auth/$'
+    | '/api/images/$'
+    | '/api/images/upload'
     | '/recipes/$recipeId/edit'
     | '/recipes/$recipeId/'
   fileRoutesByTo: FileRoutesByTo
@@ -107,6 +127,8 @@ export interface FileRouteTypes {
     | '/'
     | '/recipes/new'
     | '/api/auth/$'
+    | '/api/images/$'
+    | '/api/images/upload'
     | '/recipes/$recipeId/edit'
     | '/recipes/$recipeId'
   id:
@@ -117,6 +139,8 @@ export interface FileRouteTypes {
     | '/_authenticated/'
     | '/_authenticated/recipes/new'
     | '/api/auth/$'
+    | '/api/images/$'
+    | '/api/images/upload'
     | '/_authenticated/recipes/$recipeId/edit'
     | '/_authenticated/recipes/$recipeId/'
   fileRoutesById: FileRoutesById
@@ -125,6 +149,8 @@ export interface RootRouteChildren {
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   LoginRoute: typeof LoginRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiImagesSplatRoute: typeof ApiImagesSplatRoute
+  ApiImagesUploadRoute: typeof ApiImagesUploadRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -171,6 +197,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/images/$': {
+      id: '/api/images/$'
+      path: '/api/images/$'
+      fullPath: '/api/images/$'
+      preLoaderRoute: typeof ApiImagesSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/images/upload': {
+      id: '/api/images/upload'
+      path: '/api/images/upload'
+      fullPath: '/api/images/upload'
+      preLoaderRoute: typeof ApiImagesUploadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/recipes/$recipeId/': {
       id: '/_authenticated/recipes/$recipeId/'
       path: '/recipes/$recipeId'
@@ -213,6 +253,8 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   LoginRoute: LoginRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiImagesSplatRoute: ApiImagesSplatRoute,
+  ApiImagesUploadRoute: ApiImagesUploadRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

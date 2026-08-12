@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import type { ImageStore } from '~/db/image-store';
 import type { RecipeStore } from '~/db/recipe-store';
 import type { ShoppingItemStore } from '~/db/shopping-item-store';
 
+import { createImageKey } from './image-key';
+import { ImageAccessDeniedError } from './image-service';
 import type { NormalizedRecipe } from './recipe-input';
 import { EMPTY_RECIPE_SEARCH_CRITERIA } from './recipe-search';
 import {
@@ -75,6 +78,14 @@ const createFakeStore = () => {
         [...(steps.get(recipeId) ?? [])]
           .sort((a, b) => a.order - b.order)
           .map(({ body }) => ({ body })),
+      ),
+
+    findPhotos: (recipeId) =>
+      Promise.resolve(
+        photos
+          .filter((photo) => photo.recipeId === recipeId)
+          .sort((a, b) => a.order - b.order)
+          .map(({ storageKey }) => ({ storageKey })),
       ),
 
     findRecipeTagNames: (recipeId) =>
@@ -246,6 +257,17 @@ const createFakeStore = () => {
       return Promise.resolve();
     },
 
+    replacePhotos: (recipeId, rows) => {
+      photos.splice(
+        0,
+        photos.length,
+        ...photos.filter((photo) => photo.recipeId !== recipeId),
+        ...rows.map((row) => ({ ...row, recipeId })),
+      );
+
+      return Promise.resolve();
+    },
+
     insertTags: (rows) => {
       rows.forEach(({ userId, name }) => {
         // ユーザー内で name ユニーク。既にあれば何もしない
@@ -295,6 +317,28 @@ const createFakeShoppingItemStore = () => {
   return { store, rows };
 };
 
+/**
+ * メモリ上の `ImageStore`。
+ *
+ * ここで確かめたいのは「R2 の実体をいつ消すか」だけなので、消されたキーを
+ * 記録するだけの最小限にしてある。
+ */
+const createFakeImageStore = () => {
+  const deletedKeys: string[] = [];
+
+  const store: ImageStore = {
+    put: () => Promise.resolve(),
+    get: () => Promise.resolve(null),
+    deleteMany: (keys) => {
+      deletedKeys.push(...keys);
+
+      return Promise.resolve();
+    },
+  };
+
+  return { store, deletedKeys };
+};
+
 const recipe = (values: Partial<NormalizedRecipe> = {}): NormalizedRecipe => ({
   title: 'カレー',
   memo: null,
@@ -302,6 +346,7 @@ const recipe = (values: Partial<NormalizedRecipe> = {}): NormalizedRecipe => ({
   ingredients: [],
   steps: [],
   tagNames: [],
+  photos: [],
   ...values,
 });
 
@@ -310,6 +355,12 @@ const OTHER = 'user-other';
 
 /** 絞り込みなし（＝全件） */
 const NO_CRITERIA = EMPTY_RECIPE_SEARCH_CRITERIA;
+
+/** 添付済みの写真 1 枚分。キーの持ち主で認可されるので、採番も本物と同じ形で行う */
+const photo = (userId: string, order: number) => ({
+  storageKey: createImageKey(userId),
+  order,
+});
 
 describe('addRecipe', () => {
   it('タイトルだけのレシピを保存できる', async () => {
@@ -379,18 +430,43 @@ describe('addRecipe', () => {
     expect(fake.tags).toHaveLength(2);
     expect(fake.tags.map((tag) => tag.userId).sort()).toEqual([OTHER, OWNER]);
   });
+
+  it('写真を order 付きで保存する', async () => {
+    const fake = createFakeStore();
+    const photos = [photo(OWNER, 0), photo(OWNER, 1)];
+
+    const recipeId = await addRecipe(fake.store, OWNER, recipe({ photos }));
+
+    expect(fake.photos).toEqual(photos.map((row) => ({ ...row, recipeId })));
+  });
+
+  it('他ユーザーの画像キーを添えた作成を拒否する', async () => {
+    const fake = createFakeStore();
+
+    await expect(
+      addRecipe(fake.store, OWNER, recipe({ photos: [photo(OTHER, 0)] })),
+    ).rejects.toBeInstanceOf(ImageAccessDeniedError);
+
+    // 1 枚でも他人のものが混ざっていればレシピごと保存しない
+    expect(fake.recipes).toEqual([]);
+  });
 });
 
 describe('editRecipe', () => {
   const fake = createFakeStore();
+  const images = createFakeImageStore();
   let ownedRecipeId = '';
+  let savedPhoto = photo(OWNER, 0);
 
   beforeEach(async () => {
     fake.recipes.length = 0;
     fake.ingredients.clear();
     fake.steps.clear();
+    fake.photos.length = 0;
     fake.recipeTags.clear();
     fake.tags.length = 0;
+    images.deletedKeys.length = 0;
+    savedPhoto = photo(OWNER, 0);
 
     ownedRecipeId = await addRecipe(
       fake.store,
@@ -401,6 +477,7 @@ describe('editRecipe', () => {
           { name: '豚肉', amount: '300g', order: 1 },
         ],
         tagNames: ['和食'],
+        photos: [savedPhoto],
       }),
     );
   });
@@ -409,6 +486,7 @@ describe('editRecipe', () => {
     await expect(
       editRecipe(
         fake.store,
+        images.store,
         OTHER,
         ownedRecipeId,
         recipe({ title: '乗っ取り' }),
@@ -418,17 +496,20 @@ describe('editRecipe', () => {
     // 拒否されたので中身は 1 文字も変わらない
     expect(fake.recipes[0]?.title).toBe('カレー');
     expect(fake.ingredients.get(ownedRecipeId)).toHaveLength(2);
+    // 他人のレシピの写真を R2 から消させない
+    expect(images.deletedKeys).toEqual([]);
   });
 
   it('存在しないレシピ ID を指定した更新を拒否する', async () => {
     await expect(
-      editRecipe(fake.store, OWNER, 'recipe-unknown', recipe()),
+      editRecipe(fake.store, images.store, OWNER, 'recipe-unknown', recipe()),
     ).rejects.toBeInstanceOf(RecipeNotFoundError);
   });
 
   it('持ち主なら本文を更新できる', async () => {
     await editRecipe(
       fake.store,
+      images.store,
       OWNER,
       ownedRecipeId,
       recipe({
@@ -450,6 +531,7 @@ describe('editRecipe', () => {
   it('材料は差し替えとなり、並べ替え後の order がそのまま保存される', async () => {
     await editRecipe(
       fake.store,
+      images.store,
       OWNER,
       ownedRecipeId,
       recipe({
@@ -472,6 +554,7 @@ describe('editRecipe', () => {
   it('タグを外すと紐付けだけが消える（タグ自体は残る）', async () => {
     await editRecipe(
       fake.store,
+      images.store,
       OWNER,
       ownedRecipeId,
       recipe({ tagNames: [] }),
@@ -480,11 +563,59 @@ describe('editRecipe', () => {
     expect(fake.recipeTags.get(ownedRecipeId)).toEqual([]);
     expect(fake.tags.map((tag) => tag.name)).toEqual(['和食']);
   });
+
+  it('写真を足すと、既存の写真は R2 に残ったまま行が増える', async () => {
+    const added = photo(OWNER, 1);
+
+    await editRecipe(
+      fake.store,
+      images.store,
+      OWNER,
+      ownedRecipeId,
+      recipe({ photos: [{ ...savedPhoto, order: 0 }, added] }),
+    );
+
+    expect(fake.photos).toEqual([
+      { ...savedPhoto, order: 0, recipeId: ownedRecipeId },
+      { ...added, recipeId: ownedRecipeId },
+    ]);
+    expect(images.deletedKeys).toEqual([]);
+  });
+
+  it('写真を外すと R2 の実体も消える', async () => {
+    await editRecipe(
+      fake.store,
+      images.store,
+      OWNER,
+      ownedRecipeId,
+      recipe({ photos: [] }),
+    );
+
+    expect(fake.photos).toEqual([]);
+    expect(images.deletedKeys).toEqual([savedPhoto.storageKey]);
+  });
+
+  it('他ユーザーの画像キーを添えた更新を拒否する', async () => {
+    await expect(
+      editRecipe(
+        fake.store,
+        images.store,
+        OWNER,
+        ownedRecipeId,
+        recipe({ photos: [photo(OTHER, 0)] }),
+      ),
+    ).rejects.toBeInstanceOf(ImageAccessDeniedError);
+
+    // 元の写真は行も実体も残る
+    expect(fake.photos).toEqual([{ ...savedPhoto, recipeId: ownedRecipeId }]);
+    expect(images.deletedKeys).toEqual([]);
+  });
 });
 
 describe('getRecipeDetail', () => {
-  it('材料・手順・タグを order 順のまま返す', async () => {
+  it('材料・手順・タグ・写真を order 順のまま返す', async () => {
     const fake = createFakeStore();
+    const photos = [photo(OWNER, 0), photo(OWNER, 1)];
     const recipeId = await addRecipe(
       fake.store,
       OWNER,
@@ -500,6 +631,7 @@ describe('getRecipeDetail', () => {
           { body: '煮る', order: 1 },
         ],
         tagNames: ['和食'],
+        photos,
       }),
     );
 
@@ -515,6 +647,7 @@ describe('getRecipeDetail', () => {
         ],
         steps: [{ body: '切る' }, { body: '煮る' }],
         tagNames: ['和食'],
+        photos: photos.map(({ storageKey }) => ({ storageKey })),
       },
     );
   });
@@ -538,8 +671,10 @@ describe('getRecipeDetail', () => {
 });
 
 describe('removeRecipe', () => {
-  it('持ち主なら削除できる', async () => {
+  it('持ち主なら削除でき、写真の実体も R2 から消える', async () => {
     const fake = createFakeStore();
+    const images = createFakeImageStore();
+    const photos = [photo(OWNER, 0), photo(OWNER, 1)];
     const recipeId = await addRecipe(
       fake.store,
       OWNER,
@@ -547,35 +682,46 @@ describe('removeRecipe', () => {
         ingredients: [{ name: '豚肉', amount: '300g', order: 0 }],
         steps: [{ body: '煮る', order: 0 }],
         tagNames: ['和食'],
+        photos,
       }),
     );
 
-    await removeRecipe(fake.store, OWNER, recipeId);
+    await removeRecipe(fake.store, images.store, OWNER, recipeId);
 
     expect(fake.recipes).toEqual([]);
     expect(fake.ingredients.has(recipeId)).toBe(false);
     expect(fake.steps.has(recipeId)).toBe(false);
+    expect(fake.photos).toEqual([]);
     expect(fake.recipeTags.has(recipeId)).toBe(false);
+    // 写真の行は FK のカスケードで消えるが、R2 の実体は明示的に消す必要がある
+    expect(images.deletedKeys).toEqual(photos.map((row) => row.storageKey));
     // タグ自体はユーザーの持ち物なので、レシピを消しても残る
     expect(fake.tags.map((tag) => tag.name)).toEqual(['和食']);
   });
 
   it('他ユーザーのレシピは削除できない', async () => {
     const fake = createFakeStore();
-    const recipeId = await addRecipe(fake.store, OWNER, recipe());
+    const images = createFakeImageStore();
+    const recipeId = await addRecipe(
+      fake.store,
+      OWNER,
+      recipe({ photos: [photo(OWNER, 0)] }),
+    );
 
     await expect(
-      removeRecipe(fake.store, OTHER, recipeId),
+      removeRecipe(fake.store, images.store, OTHER, recipeId),
     ).rejects.toBeInstanceOf(RecipeNotFoundError);
 
     expect(fake.recipes).toHaveLength(1);
+    expect(images.deletedKeys).toEqual([]);
   });
 
   it('存在しないレシピの削除を拒否する', async () => {
     const fake = createFakeStore();
+    const images = createFakeImageStore();
 
     await expect(
-      removeRecipe(fake.store, OWNER, 'recipe-unknown'),
+      removeRecipe(fake.store, images.store, OWNER, 'recipe-unknown'),
     ).rejects.toBeInstanceOf(RecipeNotFoundError);
   });
 });
@@ -591,6 +737,7 @@ describe('listRecipeSummaries', () => {
 
   it('自分のレシピだけを更新の新しい順に返す', async () => {
     const fake = createFakeStore();
+    const images = createFakeImageStore();
     const first = await addRecipe(
       fake.store,
       OWNER,
@@ -600,7 +747,13 @@ describe('listRecipeSummaries', () => {
     await addRecipe(fake.store, OTHER, recipe({ title: '他人のレシピ' }));
 
     // 先に作ったレシピを更新すると、最後に触ったものとして先頭に来る
-    await editRecipe(fake.store, OWNER, first, recipe({ title: '味噌汁' }));
+    await editRecipe(
+      fake.store,
+      images.store,
+      OWNER,
+      first,
+      recipe({ title: '味噌汁' }),
+    );
 
     await expect(
       listRecipeSummaries(fake.store, OWNER, NO_CRITERIA).then((rows) =>
@@ -747,6 +900,7 @@ describe('listRecipeSummaries', () => {
 
   it('絞り込んだ結果も更新の新しい順に並ぶ', async () => {
     const fake = createFakeStore();
+    const images = createFakeImageStore();
     const first = await addRecipe(
       fake.store,
       OWNER,
@@ -759,6 +913,7 @@ describe('listRecipeSummaries', () => {
     );
     await editRecipe(
       fake.store,
+      images.store,
       OWNER,
       first,
       recipe({ title: 'カレーうどん', tagNames: ['和食'] }),
@@ -908,6 +1063,7 @@ describe('addIngredientsToShoppingList', () => {
 describe('getRecipeForEdit', () => {
   it('保存済みの値をフォームの形で返す', async () => {
     const fake = createFakeStore();
+    const savedPhoto = photo(OWNER, 0);
     const recipeId = await addRecipe(
       fake.store,
       OWNER,
@@ -919,6 +1075,7 @@ describe('getRecipeForEdit', () => {
         ],
         steps: [{ body: '煮る', order: 0 }],
         tagNames: ['和食'],
+        photos: [savedPhoto],
       }),
     );
 
@@ -935,6 +1092,7 @@ describe('getRecipeForEdit', () => {
       ],
       steps: [{ body: '煮る' }],
       tagNames: ['和食'],
+      photos: [{ storageKey: savedPhoto.storageKey }],
     });
   });
 
