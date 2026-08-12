@@ -44,6 +44,8 @@ export type RecipeStore = {
     recipeId: string,
     values: { title: string; memo: string | null; url: string | null },
   ): Promise<void>;
+  /** レシピ本体を削除する。配下の行は FK のカスケードで消える */
+  deleteRecipe(recipeId: string): Promise<void>;
   /** 材料行を丸ごと差し替える */
   replaceIngredients(
     recipeId: string,
@@ -134,6 +136,12 @@ export const createRecipeStore = (db: Database): RecipeStore => ({
       .update(recipes)
       .set({ ...values, updatedAt: new Date() })
       .where(eq(recipes.id, recipeId));
+  },
+
+  deleteRecipe: async (recipeId) => {
+    // 材料・手順・写真・タグ紐付け・作った記録は
+    // `ON DELETE CASCADE` に任せる（schema.ts の各テーブル定義を参照）
+    await db.delete(recipes).where(eq(recipes.id, recipeId));
   },
 
   replaceIngredients: async (recipeId, rows) => {

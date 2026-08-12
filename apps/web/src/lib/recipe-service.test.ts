@@ -7,7 +7,9 @@ import {
   RecipeNotFoundError,
   addRecipe,
   editRecipe,
+  getRecipeDetail,
   getRecipeForEdit,
+  removeRecipe,
 } from './recipe-service';
 
 type RecipeRow = {
@@ -84,6 +86,21 @@ const createFakeStore = () => {
       if (recipe) {
         Object.assign(recipe, values);
       }
+
+      return Promise.resolve();
+    },
+
+    deleteRecipe: (recipeId) => {
+      const index = recipes.findIndex((recipe) => recipe.id === recipeId);
+
+      if (index !== -1) {
+        recipes.splice(index, 1);
+      }
+
+      // 実 DB では FK のカスケードで消える配下の行を、ここでも同じように落とす
+      ingredients.delete(recipeId);
+      steps.delete(recipeId);
+      recipeTags.delete(recipeId);
 
       return Promise.resolve();
     },
@@ -308,6 +325,104 @@ describe('editRecipe', () => {
 
     expect(fake.recipeTags.get(ownedRecipeId)).toEqual([]);
     expect(fake.tags.map((tag) => tag.name)).toEqual(['和食']);
+  });
+});
+
+describe('getRecipeDetail', () => {
+  it('材料・手順・タグを order 順のまま返す', async () => {
+    const fake = createFakeStore();
+    const recipeId = await addRecipe(
+      fake.store,
+      OWNER,
+      recipe({
+        memo: 'ほくほく',
+        url: 'https://example.com',
+        ingredients: [
+          { name: '豚肉', amount: '300g', order: 0 },
+          { name: '塩', amount: null, order: 1 },
+        ],
+        steps: [
+          { body: '切る', order: 0 },
+          { body: '煮る', order: 1 },
+        ],
+        tagNames: ['和食'],
+      }),
+    );
+
+    await expect(getRecipeDetail(fake.store, OWNER, recipeId)).resolves.toEqual(
+      {
+        title: 'カレー',
+        memo: 'ほくほく',
+        url: 'https://example.com',
+        // 表示するかどうかを画面が選べるよう、未入力は空文字に丸めず null のまま返す
+        ingredients: [
+          { name: '豚肉', amount: '300g' },
+          { name: '塩', amount: null },
+        ],
+        steps: [{ body: '切る' }, { body: '煮る' }],
+        tagNames: ['和食'],
+      },
+    );
+  });
+
+  it('他ユーザーのレシピは取得できない', async () => {
+    const fake = createFakeStore();
+    const recipeId = await addRecipe(fake.store, OWNER, recipe());
+
+    await expect(
+      getRecipeDetail(fake.store, OTHER, recipeId),
+    ).rejects.toBeInstanceOf(RecipeNotFoundError);
+  });
+
+  it('存在しないレシピは取得できない', async () => {
+    const fake = createFakeStore();
+
+    await expect(
+      getRecipeDetail(fake.store, OWNER, 'recipe-unknown'),
+    ).rejects.toBeInstanceOf(RecipeNotFoundError);
+  });
+});
+
+describe('removeRecipe', () => {
+  it('持ち主なら削除できる', async () => {
+    const fake = createFakeStore();
+    const recipeId = await addRecipe(
+      fake.store,
+      OWNER,
+      recipe({
+        ingredients: [{ name: '豚肉', amount: '300g', order: 0 }],
+        steps: [{ body: '煮る', order: 0 }],
+        tagNames: ['和食'],
+      }),
+    );
+
+    await removeRecipe(fake.store, OWNER, recipeId);
+
+    expect(fake.recipes).toEqual([]);
+    expect(fake.ingredients.has(recipeId)).toBe(false);
+    expect(fake.steps.has(recipeId)).toBe(false);
+    expect(fake.recipeTags.has(recipeId)).toBe(false);
+    // タグ自体はユーザーの持ち物なので、レシピを消しても残る
+    expect(fake.tags.map((tag) => tag.name)).toEqual(['和食']);
+  });
+
+  it('他ユーザーのレシピは削除できない', async () => {
+    const fake = createFakeStore();
+    const recipeId = await addRecipe(fake.store, OWNER, recipe());
+
+    await expect(
+      removeRecipe(fake.store, OTHER, recipeId),
+    ).rejects.toBeInstanceOf(RecipeNotFoundError);
+
+    expect(fake.recipes).toHaveLength(1);
+  });
+
+  it('存在しないレシピの削除を拒否する', async () => {
+    const fake = createFakeStore();
+
+    await expect(
+      removeRecipe(fake.store, OWNER, 'recipe-unknown'),
+    ).rejects.toBeInstanceOf(RecipeNotFoundError);
   });
 });
 

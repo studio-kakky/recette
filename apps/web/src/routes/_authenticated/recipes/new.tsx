@@ -15,9 +15,9 @@ const NewRecipe = () => {
       heading="レシピを追加"
       submitLabel="保存する"
       onSubmit={async (values) => {
-        await createRecipe({ data: values });
-        // レシピ詳細は未実装のため、保存後は一覧へ戻す
-        await navigate({ to: '/' });
+        const { recipeId } = await createRecipe({ data: values });
+        // 保存できたことがそのまま見えるよう、作ったレシピの詳細へ送る
+        await navigate({ to: '/recipes/$recipeId', params: { recipeId } });
       }}
       onCancel={() => void navigate({ to: '/' })}
     />
