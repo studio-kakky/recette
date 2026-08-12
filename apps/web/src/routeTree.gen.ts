@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
+import { Route as AuthenticatedShoppingListRouteImport } from './routes/_authenticated/shopping-list'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
@@ -28,6 +29,12 @@ const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedShoppingListRoute =
+  AuthenticatedShoppingListRouteImport.update({
+    id: '/shopping-list',
+    path: '/shopping-list',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -37,10 +44,12 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
   '/login': typeof LoginRoute
+  '/shopping-list': typeof AuthenticatedShoppingListRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
+  '/shopping-list': typeof AuthenticatedShoppingListRoute
   '/': typeof AuthenticatedIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -48,18 +57,20 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/login': typeof LoginRoute
+  '/_authenticated/shopping-list': typeof AuthenticatedShoppingListRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/api/auth/$'
+  fullPaths: '/' | '/login' | '/shopping-list' | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/login' | '/' | '/api/auth/$'
+  to: '/login' | '/shopping-list' | '/' | '/api/auth/$'
   id:
     | '__root__'
     | '/_authenticated'
     | '/login'
+    | '/_authenticated/shopping-list'
     | '/_authenticated/'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
@@ -93,6 +104,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/shopping-list': {
+      id: '/_authenticated/shopping-list'
+      path: '/shopping-list'
+      fullPath: '/shopping-list'
+      preLoaderRoute: typeof AuthenticatedShoppingListRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -104,10 +122,12 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteChildren {
+  AuthenticatedShoppingListRoute: typeof AuthenticatedShoppingListRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedShoppingListRoute: AuthenticatedShoppingListRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
 }
 

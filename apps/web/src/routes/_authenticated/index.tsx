@@ -1,49 +1,35 @@
-import {
-  createFileRoute,
-  useNavigate,
-  useRouter,
-} from '@tanstack/react-router';
-import { useState } from 'react';
+import { createFileRoute } from '@tanstack/react-router';
+import { NotebookPen } from 'lucide-react';
 
-import { Button } from '~/components/ui/button';
-import { authClient } from '~/lib/auth-client';
-
+/**
+ * レシピ一覧のプレースホルダー。
+ *
+ * ヘッダー・ナビ・ログアウトは共通シェル（`_authenticated.tsx`）が持つので、
+ * ここは本文だけを描く。一覧の中身は後続で実装する。
+ */
 const Home = () => {
   const { user } = Route.useRouteContext();
-  const router = useRouter();
-  const navigate = useNavigate();
-  const [isSigningOut, setIsSigningOut] = useState(false);
-
-  const signOut = async () => {
-    setIsSigningOut(true);
-    await authClient.signOut();
-    // セッションを持っているルートのコンテキストを作り直してからログイン画面へ送る
-    // （順序を逆にすると、古いセッションのままログイン画面のガードに弾かれる）
-    await router.invalidate();
-    await navigate({ to: '/login', replace: true });
-  };
 
   return (
-    <main className="mx-auto flex min-h-svh max-w-md flex-col justify-center gap-6 px-6 py-12">
-      <h1 className="text-3xl font-bold tracking-tight">Recette</h1>
-      <p className="text-muted-foreground text-sm">
-        レシピを集めて、いつでも取り出せるように。
-      </p>
-      <div className="flex flex-col gap-3">
-        <p className="text-sm">
-          <span className="font-medium">{user.name}</span> でログイン中
+    <section className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1">
+        <h1 className="font-heading text-2xl font-bold tracking-tight">
+          レシピ
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          <span className="text-foreground font-medium">{user.name}</span>{' '}
+          さんのレシピ帳
         </p>
-        <div className="flex flex-wrap gap-3">
-          <Button
-            variant="outline"
-            disabled={isSigningOut}
-            onClick={() => void signOut()}
-          >
-            ログアウト
-          </Button>
-        </div>
       </div>
-    </main>
+      <div className="bg-card border-border flex flex-col items-center gap-3 rounded-2xl border px-6 py-12 text-center">
+        <NotebookPen className="text-primary size-8" aria-hidden="true" />
+        <p className="text-muted-foreground text-sm leading-relaxed text-pretty">
+          まだレシピがありません。
+          <br />
+          入り口は雑でいい。あとから見つかればいい。
+        </p>
+      </div>
+    </section>
   );
 };
 
