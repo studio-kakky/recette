@@ -9,6 +9,7 @@ import {
   editRecipe,
   getRecipeDetail,
   getRecipeForEdit,
+  listRecipeSummaries,
   removeRecipe,
 } from './recipe-service';
 
@@ -35,9 +36,25 @@ const createFakeStore = () => {
   const steps = new Map<string, Array<{ body: string; order: number }>>();
   const tags: Array<{ id: string; userId: string; name: string }> = [];
   const recipeTags = new Map<string, string[]>();
+  const cookLogs: Array<{ recipeId: string }> = [];
+  const photos: Array<{ recipeId: string; storageKey: string; order: number }> =
+    [];
+  const updatedAtById = new Map<string, Date>();
 
   let sequence = 0;
   const nextId = (prefix: string) => `${prefix}-${++sequence}`;
+
+  // 実時刻に依らず「あとで書いたものほど新しい」を作るための論理時計
+  let clock = 0;
+  const touch = (recipeId: string) => {
+    updatedAtById.set(recipeId, new Date(++clock * 1000));
+  };
+
+  /** userId が持つレシピの ID 集合（子テーブルの絞り込みに使う） */
+  const recipeIdsOf = (userId: string) =>
+    new Set(
+      recipes.filter((recipe) => recipe.userId === userId).map(({ id }) => id),
+    );
 
   const store: RecipeStore = {
     findRecipe: (recipeId) =>
@@ -73,9 +90,74 @@ const createFakeStore = () => {
           .sort((a, b) => a.name.localeCompare(b.name)),
       ),
 
+    listRecipes: (userId) =>
+      Promise.resolve(
+        recipes
+          .filter((recipe) => recipe.userId === userId)
+          // 並び順はユースケース側の責務なので、ここでは作成順のまま返す
+          .map(({ id, title, url }) => ({
+            id,
+            title,
+            url,
+            updatedAt: updatedAtById.get(id) ?? new Date(0),
+          })),
+      ),
+
+    listTagNamesByRecipe: (userId) => {
+      const ids = recipeIdsOf(userId);
+
+      return Promise.resolve(
+        [...recipeTags.entries()]
+          .filter(([recipeId]) => ids.has(recipeId))
+          .flatMap(([recipeId, tagIds]) =>
+            tagIds
+              .map((tagId) => tags.find((tag) => tag.id === tagId)?.name)
+              .filter((name) => name !== undefined)
+              .sort()
+              .map((name) => ({ recipeId, name })),
+          ),
+      );
+    },
+
+    countCookLogsByRecipe: (userId) => {
+      const ids = recipeIdsOf(userId);
+      const counts = cookLogs
+        .filter((log) => ids.has(log.recipeId))
+        .reduce(
+          (acc, log) => acc.set(log.recipeId, (acc.get(log.recipeId) ?? 0) + 1),
+          new Map<string, number>(),
+        );
+
+      // 0 件のレシピは行自体が返らない（実装の GROUP BY と同じ挙動）
+      return Promise.resolve(
+        [...counts].map(([recipeId, cookCount]) => ({ recipeId, cookCount })),
+      );
+    },
+
+    listFirstPhotoKeysByRecipe: (userId) => {
+      const ids = recipeIdsOf(userId);
+      const firstByRecipe = photos
+        .filter((photo) => ids.has(photo.recipeId))
+        .reduce((acc, photo) => {
+          const current = acc.get(photo.recipeId);
+
+          return current && current.order <= photo.order
+            ? acc
+            : acc.set(photo.recipeId, photo);
+        }, new Map<string, { storageKey: string; order: number }>());
+
+      return Promise.resolve(
+        [...firstByRecipe].map(([recipeId, photo]) => ({
+          recipeId,
+          storageKey: photo.storageKey,
+        })),
+      );
+    },
+
     insertRecipe: (recipe) => {
       const id = nextId('recipe');
       recipes.push({ id, ...recipe });
+      touch(id);
 
       return Promise.resolve(id);
     },
@@ -85,6 +167,7 @@ const createFakeStore = () => {
 
       if (recipe) {
         Object.assign(recipe, values);
+        touch(recipeId);
       }
 
       return Promise.resolve();
@@ -101,6 +184,15 @@ const createFakeStore = () => {
       ingredients.delete(recipeId);
       steps.delete(recipeId);
       recipeTags.delete(recipeId);
+      updatedAtById.delete(recipeId);
+
+      const dropRowsOfRecipe = <T extends { recipeId: string }>(rows: T[]) => {
+        const kept = rows.filter((row) => row.recipeId !== recipeId);
+        rows.splice(0, rows.length, ...kept);
+      };
+
+      dropRowsOfRecipe(cookLogs);
+      dropRowsOfRecipe(photos);
 
       return Promise.resolve();
     },
@@ -141,7 +233,16 @@ const createFakeStore = () => {
     },
   };
 
-  return { store, recipes, ingredients, steps, tags, recipeTags };
+  return {
+    store,
+    recipes,
+    ingredients,
+    steps,
+    tags,
+    recipeTags,
+    cookLogs,
+    photos,
+  };
 };
 
 const recipe = (values: Partial<NormalizedRecipe> = {}): NormalizedRecipe => ({
@@ -423,6 +524,104 @@ describe('removeRecipe', () => {
     await expect(
       removeRecipe(fake.store, OWNER, 'recipe-unknown'),
     ).rejects.toBeInstanceOf(RecipeNotFoundError);
+  });
+});
+
+describe('listRecipeSummaries', () => {
+  it('レシピが 1 件も無ければ空になる', async () => {
+    const fake = createFakeStore();
+
+    await expect(listRecipeSummaries(fake.store, OWNER)).resolves.toEqual([]);
+  });
+
+  it('自分のレシピだけを更新の新しい順に返す', async () => {
+    const fake = createFakeStore();
+    const first = await addRecipe(
+      fake.store,
+      OWNER,
+      recipe({ title: '味噌汁' }),
+    );
+    await addRecipe(fake.store, OWNER, recipe({ title: '肉じゃが' }));
+    await addRecipe(fake.store, OTHER, recipe({ title: '他人のレシピ' }));
+
+    // 先に作ったレシピを更新すると、最後に触ったものとして先頭に来る
+    await editRecipe(fake.store, OWNER, first, recipe({ title: '味噌汁' }));
+
+    await expect(
+      listRecipeSummaries(fake.store, OWNER).then((rows) =>
+        rows.map((row) => row.title),
+      ),
+    ).resolves.toEqual(['味噌汁', '肉じゃが']);
+  });
+
+  it('タグ・作った回数・URL の有無・先頭写真をカードの形にまとめる', async () => {
+    const fake = createFakeStore();
+    const recipeId = await addRecipe(
+      fake.store,
+      OWNER,
+      recipe({ url: 'https://example.com', tagNames: ['和食', 'あっさり'] }),
+    );
+    fake.cookLogs.push({ recipeId }, { recipeId });
+    // 先頭写真は order が最小のもの。登録順に依らず選ばれる
+    fake.photos.push(
+      { recipeId, storageKey: 'photos/second', order: 1 },
+      { recipeId, storageKey: 'photos/first', order: 0 },
+    );
+
+    await expect(listRecipeSummaries(fake.store, OWNER)).resolves.toEqual([
+      {
+        id: recipeId,
+        title: 'カレー',
+        tagNames: ['あっさり', '和食'],
+        cookCount: 2,
+        hasUrl: true,
+        photoStorageKey: 'photos/first',
+      },
+    ]);
+  });
+
+  it('作った記録・タグ・写真・URL が無くても破綻しない', async () => {
+    const fake = createFakeStore();
+    const recipeId = await addRecipe(fake.store, OWNER, recipe());
+
+    await expect(listRecipeSummaries(fake.store, OWNER)).resolves.toEqual([
+      {
+        id: recipeId,
+        title: 'カレー',
+        tagNames: [],
+        cookCount: 0,
+        hasUrl: false,
+        photoStorageKey: null,
+      },
+    ]);
+  });
+
+  it('他レシピの作った記録やタグを取り違えない', async () => {
+    const fake = createFakeStore();
+    const cooked = await addRecipe(
+      fake.store,
+      OWNER,
+      recipe({ title: 'よく作る', tagNames: ['定番'] }),
+    );
+    const untouched = await addRecipe(
+      fake.store,
+      OWNER,
+      recipe({ title: 'まだ作っていない' }),
+    );
+    fake.cookLogs.push({ recipeId: cooked });
+
+    const summaries = await listRecipeSummaries(fake.store, OWNER);
+
+    expect(
+      summaries.map(({ id, cookCount, tagNames }) => ({
+        id,
+        cookCount,
+        tagNames,
+      })),
+    ).toEqual([
+      { id: untouched, cookCount: 0, tagNames: [] },
+      { id: cooked, cookCount: 1, tagNames: ['定番'] },
+    ]);
   });
 });
 
