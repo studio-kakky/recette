@@ -1,15 +1,17 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 import {
   LoaderCircle,
   NotebookPen,
   Search,
   ShoppingBasket,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { ComponentType, SVGProps } from 'react';
+import * as z from 'zod';
 
 import { Button } from '~/components/ui/button';
 import { authClient } from '~/lib/auth-client';
+import { REDIRECT_SEARCH_PARAM, sanitizeRedirect } from '~/lib/redirect';
 
 /** Google のブランドガイドラインに沿った "G" ロゴ（公式カラー） */
 const GoogleLogo = (props: SVGProps<SVGSVGElement>) => (
@@ -43,18 +45,15 @@ const FEATURES: ReadonlyArray<{
   { icon: ShoppingBasket, label: '買い物へ' },
 ];
 
+/** 認証ガードから渡ってくる復帰先。中身は使う直前に必ずサニタイズする */
+const loginSearchSchema = z.object({
+  [REDIRECT_SEARCH_PARAM]: z.string().optional(),
+});
+
 const Login = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
-  const { data: session } = authClient.useSession();
-  const navigate = useNavigate();
-
-  // ログイン済みならログイン画面に用はないのでトップへ送る
-  // （サーバー側のガードは別途 issue #19 で対応する）
-  useEffect(() => {
-    if (!session) return;
-    void navigate({ to: '/', replace: true });
-  }, [session, navigate]);
+  const search = Route.useSearch();
 
   const signInWithGoogle = async () => {
     setErrorMessage(null);
@@ -63,7 +62,8 @@ const Login = () => {
     // 成功した場合は Google の同意画面へ遷移するため、この先には戻ってこない
     const { error } = await authClient.signIn.social({
       provider: 'google',
-      callbackURL: '/',
+      // 認証後の戻り先。オープンリダイレクトを防ぐため相対パスだけを通す
+      callbackURL: sanitizeRedirect(search[REDIRECT_SEARCH_PARAM]),
     });
 
     setIsSigningIn(false);
@@ -150,5 +150,12 @@ const Login = () => {
 };
 
 export const Route = createFileRoute('/login')({
+  validateSearch: loginSearchSchema,
+  beforeLoad: ({ context, search }) => {
+    // ログイン済みならログイン画面に用はないので、復帰先（既定は `/`）へ送る
+    if (context.user) {
+      throw redirect({ href: sanitizeRedirect(search[REDIRECT_SEARCH_PARAM]) });
+    }
+  },
   component: Login,
 });

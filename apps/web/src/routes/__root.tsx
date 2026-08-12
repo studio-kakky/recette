@@ -6,6 +6,7 @@ import {
 } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 
+import { fetchOptionalUser } from '~/lib/session';
 import appCss from '~/styles/app.css?url';
 
 const RootDocument = ({ children }: Readonly<{ children: ReactNode }>) => (
@@ -27,6 +28,11 @@ const RootComponent = () => (
 );
 
 export const Route = createRootRoute({
+  /**
+   * セッションはここで 1 度だけ取得し、`context.user` として子ルートへ配る
+   * （SSR でも クライアント遷移でも走るので、ページごとに get-session を叩かずに済む）。
+   */
+  beforeLoad: async () => ({ user: await fetchOptionalUser() }),
   head: () => ({
     meta: [
       { charSet: 'utf-8' },

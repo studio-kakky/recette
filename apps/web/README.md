@@ -120,13 +120,23 @@ export const listRecipes = createServerFn().handler(async () => {
 
 ### 構成
 
-| ファイル                   | 役割                                                                                  |
-| -------------------------- | ------------------------------------------------------------------------------------- |
-| `src/lib/auth.server.ts`   | better-auth 本体の設定と、セッション検証ヘルパー（`requireUser` / `getOptionalUser`） |
-| `src/lib/session.ts`       | ログイン状態をクライアントから取れるようにする Server Function                        |
-| `src/lib/auth-client.ts`   | ブラウザから `/api/auth/*` を叩くクライアント（`authClient`）                         |
-| `src/routes/api/auth/$.ts` | better-auth のハンドラを `/api/auth/*` にマウントするサーバールート                   |
-| `src/routes/login.tsx`     | `/login`。「Google でログイン」ボタンだけの最小 UI                                    |
+| ファイル                        | 役割                                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------------------- |
+| `src/lib/auth.server.ts`        | better-auth 本体の設定と、セッション検証ヘルパー（`requireUser` / `getOptionalUser`） |
+| `src/lib/session.ts`            | ログイン状態をクライアントから取れるようにする Server Function                        |
+| `src/lib/auth-client.ts`        | ブラウザから `/api/auth/*` を叩くクライアント（`authClient`）                         |
+| `src/lib/redirect.ts`           | `?redirect=` の復帰先を同一オリジンの相対パスに限定する `sanitizeRedirect`            |
+| `src/routes/api/auth/$.ts`      | better-auth のハンドラを `/api/auth/*` にマウントするサーバールート                   |
+| `src/routes/login.tsx`          | `/login`。「Google でログイン」ボタンだけの最小 UI                                    |
+| `src/routes/_authenticated.tsx` | ログイン必須ページをまとめる pathless layout route（認証ガード）                      |
+
+### 画面のガード
+
+- セッションは **`src/routes/__root.tsx` の `beforeLoad` で 1 度だけ取得**し、`context.user` として子ルートへ配る。ページごとに get-session を叩かない
+- ログインが要るページは **`src/routes/_authenticated/` 配下に置く**だけでガードがかかる（`/` は `src/routes/_authenticated/index.tsx`）。未ログインなら `/login?redirect=<現在地>` へリダイレクトする
+- `beforeLoad` は SSR でもクライアント遷移でも走るため、直接 URL を開いた場合もリンク遷移の場合もガードが効く
+- `/login` はログイン済みなら復帰先（`?redirect=`、既定は `/`）へ送る。復帰先は `sanitizeRedirect()` を通し、**同一オリジンの相対パス以外は `/` に落とす**（オープンリダイレクト対策）。Google 認証後の戻り先（`callbackURL`）にも同じ値を使う
+- ログアウトは `router.invalidate()` でセッションを取り直してから `/login` へ遷移する
 
 **`.server.ts` の付いたモジュールをクライアントから import しないこと。** D1 バインディングやシークレットを参照するため、クライアントバンドルに入るとビルドが落ちる（TanStack Start の import protection が検出する）。クライアントから使いたい処理は Server Function 越しに呼ぶ。
 
